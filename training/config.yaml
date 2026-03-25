@@ -15,7 +15,7 @@ model: tfidf_logreg
 
 # ── Data paths ────────────────────────────────────────────────
 data:
-  raw_path:      data/raw/transactions_small.csv
+  raw_path:      data/raw/transactions.csv
   processed_dir: data/processed/
 
 # ── Split config ──────────────────────────────────────────────
