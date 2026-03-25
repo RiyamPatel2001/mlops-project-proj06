@@ -1,0 +1,13 @@
+data/raw/
+data/processed/
+data/embeddings/
+*.pt
+*.bin
+*.pkl
+__pycache__/
+mlruns/
+mlartifacts/
+models/artifacts/
+__pycache__/
+*.pyc
+*.pyo
