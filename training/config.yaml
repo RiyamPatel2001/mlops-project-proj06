@@ -1,0 +1,59 @@
+# config.yaml
+# ──────────────────────────────────────────────────────────────
+# Single source of truth for a training run.
+# Change "model" to switch candidates — train.py dispatches
+# to the matching module in models/.
+#
+# Usage:
+#   python3 train.py --config config.yaml
+# ──────────────────────────────────────────────────────────────
+
+# ── Which model to train ──────────────────────────────────────
+# Options (as you build them out):
+#   tfidf_logreg | fasttext | minilm | distilbert
+model: tfidf_logreg
+
+# ── Data paths ────────────────────────────────────────────────
+data:
+  raw_path:      data/raw/transactions.csv
+  processed_dir: data/processed/
+
+# ── Split config ──────────────────────────────────────────────
+val_frac:     0.2   # fraction of users held out for validation
+random_state: 42    # controls user split + any model randomness
+
+# ── Model output ──────────────────────────────────────────────
+model_output_dir: training/models/artifacts/
+
+# ── MLflow ────────────────────────────────────────────────────
+mlflow:
+  tracking_uri:    http://localhost:5000   # swap for Chameleon VM IP at runtime
+  experiment_name: layer1-categorizer
+
+# ── Model-specific hyperparameters ───────────────────────────
+# Only the section matching "model" above is used by train.py.
+
+tfidf_logreg:
+  C:            1.0
+  class_weight: balanced
+  max_iter:     1000
+
+fasttext:
+  lr:           0.1
+  epoch:        25
+  wordNgrams:   2
+  dim:          100
+
+minilm:
+  learning_rate:    2.0e-5
+  num_epochs:       3
+  batch_size:       32
+  warmup_steps:     100
+  max_length:       64       # max token length for payee strings
+
+distilbert:
+  learning_rate:    2.0e-5
+  num_epochs:       3
+  batch_size:       16       # smaller — DistilBERT is heavier than MiniLM
+  warmup_steps:     100
+  max_length:       64
