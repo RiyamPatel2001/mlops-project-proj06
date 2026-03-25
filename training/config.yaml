@@ -27,7 +27,7 @@ model_output_dir: training/models/artifacts/
 
 # ── MLflow ────────────────────────────────────────────────────
 mlflow:
-  tracking_uri:    http://localhost:5000   # swap for Chameleon VM IP at runtime
+  tracking_uri:    http://localhost:8000   # swap for Chameleon VM IP at runtime
   experiment_name: layer1-categorizer
 
 # ── Model-specific hyperparameters ───────────────────────────
