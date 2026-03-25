@@ -1,0 +1,12 @@
+# Generated at runtime — never bake into the image
+mlruns/
+mlartifacts/
+models/artifacts/
+ 
+# Data — mounted at runtime via -v, not baked in
+data/
+ 
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo

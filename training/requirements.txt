@@ -1,0 +1,11 @@
+# Training container dependencies
+# Pinned to minor versions for reproducibility; patch updates are safe.
+#
+# stdlib used (no entry needed): argparse, json, os, re, sys, tempfile, time
+
+joblib==1.4.*
+mlflow==2.14.*
+numpy==1.26.*
+pandas==2.2.*
+PyYAML==6.0.*
+scikit-learn==1.5.*
