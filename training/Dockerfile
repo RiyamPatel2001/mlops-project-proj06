@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install dependencies first — this layer is cached as long as
 # requirements.txt doesn't change, so rebuilds after code edits are fast.
-COPY requirements.txt .
+COPY training/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy all training code from context root into /app
