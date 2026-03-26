@@ -43,6 +43,7 @@ import evaluate as eval_module
 # Model registry — add new candidates here as you build them
 MODEL_REGISTRY = {
     "tfidf_logreg": "models.tfidf_logreg",
+    "fasttext":     "models.fasttext_model",
 }
 
 
