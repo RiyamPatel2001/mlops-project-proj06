@@ -3,6 +3,7 @@
 #
 # stdlib used (no entry needed): argparse, json, os, re, sys, tempfile, time
 
+fasttext-wheel==0.9.2
 joblib==1.4.*
 mlflow==2.14.*
 numpy==1.26.*
