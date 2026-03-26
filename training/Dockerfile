@@ -2,6 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install git first so MLflow can capture git SHA
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies first — this layer is cached as long as
 # requirements.txt doesn't change, so rebuilds after code edits are fast.
 COPY training/requirements.txt .
@@ -17,7 +20,7 @@ COPY . .
 #   docker run --rm \
 #     -v %cd%\data:/app/data \
 #     -v %cd%\models\artifacts:/app/models/artifacts \
-#     -e MLFLOW_TRACKING_URI=http://<chameleon-ip>:5000 \
+#     -e MLFLOW_TRACKING_URI=http://<chameleon-ip>:8000 \
 #     transaction-categorizer-training
 
-ENTRYPOINT ["python", "train.py", "--config", "config.yaml"]
+ENTRYPOINT ["python", "training/train.py", "--config", "training/config.yaml"]
