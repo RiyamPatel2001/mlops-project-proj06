@@ -195,10 +195,16 @@ def save_and_log_model(vec, clf, cfg: dict) -> None:
     output_dir = cfg["model_output_dir"]
     os.makedirs(output_dir, exist_ok=True)
 
-    artifact_path = os.path.join(output_dir, f"{model_name}.joblib")
-    joblib.dump({"vectorizer": vec, "classifier": clf}, artifact_path)
+    if model_name == "fasttext":
+        # fasttext has its own binary format — save the underlying C++ model
+        artifact_path = os.path.join(output_dir, f"{model_name}.bin")
+        clf._model.save_model(artifact_path)
+    else:
+        # sklearn-compatible models — joblib pickle of {vectorizer, classifier}
+        artifact_path = os.path.join(output_dir, f"{model_name}.joblib")
+        joblib.dump({"vectorizer": vec, "classifier": clf}, artifact_path)
+ 
     print(f"[artifact] Saved model to {artifact_path}")
-
     mlflow.log_artifact(artifact_path)
     print(f"[artifact] Logged to MLflow.")
 
