@@ -1,0 +1,15 @@
+# GPU training container dependencies
+# Extends the CPU requirements with torch + transformers.
+# Base image pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime
+# already provides torch — listed here for explicitness but pip
+# will skip reinstall if the version matches.
+ 
+torch==2.1.*
+transformers==4.40.*
+accelerate==0.29.*
+joblib==1.4.*
+mlflow==2.14.*
+numpy==1.26.*
+pandas==2.2.*
+PyYAML==6.0.*
+scikit-learn==1.5.*
