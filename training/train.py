@@ -44,6 +44,8 @@ import evaluate as eval_module
 MODEL_REGISTRY = {
     "tfidf_logreg": "models.tfidf_logreg",
     "fasttext":     "models.fasttext_model",
+    "minilm":       "models.minilm_finetune",
+    "distilbert":   "models.distilbert_finetune",
 }
 
 
@@ -199,6 +201,10 @@ def save_and_log_model(vec, clf, cfg: dict) -> None:
         # fasttext has its own binary format — save the underlying C++ model
         artifact_path = os.path.join(output_dir, f"{model_name}.bin")
         clf._model.save_model(artifact_path)
+    elif model_name in ["minilm", "distilbert"]:
+        # HuggingFace transformers — save in their native format
+        artifact_path = os.path.join(output_dir, model_name)
+        clf.save(artifact_path)
     else:
         # sklearn-compatible models — joblib pickle of {vectorizer, classifier}
         artifact_path = os.path.join(output_dir, f"{model_name}.joblib")

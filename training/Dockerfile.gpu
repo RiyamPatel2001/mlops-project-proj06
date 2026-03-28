@@ -1,0 +1,28 @@
+FROM pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime
+ 
+WORKDIR /app
+
+# Install git first so MLflow can capture git SHA
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+ 
+# Copy training code from context root (training/ directory)
+# Install dependencies first — this layer is cached as long as
+# requirements.txt doesn't change, so rebuilds after code edits are fast.
+COPY training/requirements-gpu.txt .
+RUN pip install --no-cache-dir -r requirements-gpu.txt
+
+
+# Copy training code from context root (training/ directory)
+COPY . .
+ 
+# Runtime overrides:
+#   MLFLOW_TRACKING_URI  — point at the Chameleon MLflow VM
+#
+# GPU run command:
+#   docker run --rm --gpus all \
+#     -v $(pwd)/data:/app/data \
+#     -v $(pwd)/models/artifacts:/app/models/artifacts \
+#     -e MLFLOW_TRACKING_URI=http://<mlflow-vm-ip>:8000 \
+#     categorizer-training-gpu
+ 
+ENTRYPOINT ["python", "training/train.py", "--config", "training/config.yaml"]
