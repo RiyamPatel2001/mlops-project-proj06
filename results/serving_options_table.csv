@@ -1,0 +1,36 @@
+Option,Endpoint URL,Model,Model Version,Code Version,Hardware,Model Size (MB),p50 Latency (ms),p95 Latency (ms),p99 Latency (ms),Throughput (FPS),Batch Throughput (FPS),Notes
+distilbert_pytorch_cpu,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Baseline
+distilbert_onnx_no_opt,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,,,,,,,ONNX no optimization
+distilbert_onnx_optimized,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,,,,,,,ORT_ENABLE_EXTENDED
+distilbert_dynamic_quant,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Intel Neural Compressor dynamic
+distilbert_static_quant_aggressive,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,,,,,,,INC quant_level=1 tolerable_loss=0.05
+distilbert_static_quant_conservative,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,,,,,,,INC quant_level=0 tolerable_loss=0.01
+distilbert_onnx_cuda,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,CUDAExecutionProvider
+distilbert_onnx_tensorrt,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,TensorrtExecutionProvider
+distilbert_onnx_openvino,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU (OpenVINO),,,,,,,OpenVINOExecutionProvider
+minilm_pytorch_cpu,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Baseline
+minilm_onnx_no_opt,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,,,,,,,ONNX no optimization
+minilm_onnx_optimized,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,,,,,,,ORT_ENABLE_EXTENDED
+minilm_dynamic_quant,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Intel Neural Compressor dynamic
+minilm_static_quant_aggressive,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,,,,,,,INC quant_level=1
+minilm_static_quant_conservative,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,,,,,,,INC quant_level=0
+minilm_onnx_cuda,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,CUDAExecutionProvider
+minilm_onnx_tensorrt,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,TensorrtExecutionProvider
+minilm_onnx_openvino,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU (OpenVINO),,,,,,,OpenVINOExecutionProvider
+tfidf_logreg_sklearn_cpu,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Baseline sklearn
+tfidf_logreg_onnx_no_opt,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,skl2onnx conversion
+tfidf_logreg_onnx_optimized,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,ORT_ENABLE_EXTENDED
+tfidf_logreg_dynamic_quant,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Dynamic quantization
+tfidf_logreg_static_quant_aggressive,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,May not apply to linear model
+tfidf_logreg_static_quant_conservative,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,May not apply to linear model
+tfidf_logreg_onnx_cuda,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,Minimal benefit expected
+tfidf_logreg_onnx_openvino,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU (OpenVINO),,,,,,,
+fasttext_native_cpu,http://<IP>:8000/predict,fasttext,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Native baseline (very fast)
+fasttext_onnx,N/A,fasttext,,,,,,,,,,N/A - no ONNX export path
+fasttext_gpu,N/A,fasttext,,,,,,,,,,N/A - CPU-only library
+best_model_fastapi_sequential,http://<IP>:8000/predict,<best>,<mlflow_run_id>,<git_sha>,<hw>,,,,,,,FastAPI 100 sequential requests
+best_model_fastapi_concurrent,http://<IP>:8000/predict,<best>,<mlflow_run_id>,<git_sha>,<hw>,,,,,,,FastAPI 1000 concurrent (16 workers)
+best_model_triton_1_instance,http://<IP>:8000,<best>,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,Triton 1 GPU instance
+best_model_triton_2_instances,http://<IP>:8000,<best>,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,Triton 2 GPU instances
+best_model_triton_dynamic_batch,http://<IP>:8000,<best>,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,Triton + dynamic batching
+best_model_triton_combined,http://<IP>:8000,<best>,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,"BEST: ONNX + 2 instances + dynamic batching"

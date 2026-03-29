@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "INPUT_TEXT": ["TESCO STORES 3456 -45.20 Friday"]
+    },
+    {
+      "INPUT_TEXT": ["DOMINOS #7548 -22.50 Thursday"]
+    },
+    {
+      "INPUT_TEXT": ["AMAZON.COM -129.99 Monday"]
+    },
+    {
+      "INPUT_TEXT": ["SHELL OIL 12345 -55.00 Tuesday"]
+    }
+  ]
+}

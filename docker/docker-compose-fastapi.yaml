@@ -1,0 +1,39 @@
+services:
+  fastapi_server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.fastapi
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../models:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    container_name: fastapi_server
+    networks:
+      - serving_net
+
+  jupyter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jupyter-eval
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../evaluation:/home/jovyan/work/evaluation
+      - ../scripts:/home/jovyan/work/scripts
+      - ../models:/home/jovyan/work/models
+      - ../data:/home/jovyan/work/data
+    shm_size: "16g"
+    container_name: jupyter
+    networks:
+      - serving_net
+
+networks:
+  serving_net:
+    driver: bridge

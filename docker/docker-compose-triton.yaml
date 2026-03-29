@@ -1,0 +1,40 @@
+services:
+  triton_server:
+    image: nvcr.io/nvidia/tritonserver:24.08-py3
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+      - "8002:8002"
+    volumes:
+      - ../triton/models:/models
+    command: ["tritonserver", "--model-repository=/models"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    container_name: triton_server
+    shm_size: "16g"
+    networks:
+      - triton_net
+
+  jupyter:
+    image: nvcr.io/nvidia/tritonserver:24.08-py3-sdk
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../evaluation:/workspace/evaluation
+      - ../scripts:/workspace/scripts
+      - ../triton:/workspace/triton
+      - ../data:/workspace/data
+    command: ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
+    container_name: jupyter_triton
+    shm_size: "16g"
+    networks:
+      - triton_net
+
+networks:
+  triton_net:
+    driver: bridge
