@@ -9,6 +9,14 @@ identical. No duplication between candidates.
 
 Returns a TransformerClassifier wrapper with a .predict() method so
 evaluate_and_log() works without modification, same as tfidf and fasttext.
+
+Fix (2025-03): num_workers=2 with on-the-fly HuggingFace tokenization causes
+a deadlock after epoch 1 on Linux GPU instances (PyTorch multiprocessing +
+HuggingFace tokenizer incompatibility). Fixed by:
+  1. Pre-tokenizing the entire training set once into a TensorDataset —
+     no per-sample work left for workers to do.
+  2. num_workers=0 as a belt-and-suspenders safety measure (also avoids
+     any fork-safety issues with the tokenizer's Rust backend).
 """
 
 from __future__ import annotations
@@ -18,50 +26,12 @@ import os
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import TensorDataset, DataLoader
 from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
     get_linear_schedule_with_warmup,
 )
-
-
-# ── Dataset ───────────────────────────────────────────────────────────────────
-
-class PayeeDataset(Dataset):
-    """
-    Tokenizes payee strings on-the-fly.
-    Keeps memory footprint small — no pre-tokenizing the full dataset.
-    """
-
-    def __init__(
-        self,
-        texts: list[str],
-        labels: np.ndarray,
-        tokenizer,
-        max_length: int,
-    ):
-        self.texts     = texts
-        self.labels    = labels
-        self.tokenizer = tokenizer
-        self.max_length = max_length
-
-    def __len__(self) -> int:
-        return len(self.texts)
-
-    def __getitem__(self, idx: int) -> dict:
-        enc = self.tokenizer(
-            self.texts[idx],
-            max_length=self.max_length,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt",
-        )
-        return {
-            "input_ids":      enc["input_ids"].squeeze(0),
-            "attention_mask": enc["attention_mask"].squeeze(0),
-            "labels":         torch.tensor(self.labels[idx], dtype=torch.long),
-        }
 
 
 # ── sklearn-compatible wrapper ────────────────────────────────────────────────
@@ -134,9 +104,9 @@ def train_transformer(
         (None, TransformerClassifier) — None in the vectorizer slot;
         evaluate_and_log() already handles vec=None.
     """
-    model_cfg   = config[model_config_key]
-    num_labels  = len(set(y_train.tolist()))
-    device      = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model_cfg  = config[model_config_key]
+    num_labels = len(set(y_train.tolist()))
+    device     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[transformer] Device: {device}")
     print(f"[transformer] Loading {hf_model_name} ...")
 
@@ -148,21 +118,37 @@ def train_transformer(
         ignore_mismatched_sizes=True,  # replaces pretrained head with new one
     ).to(device)
 
-    # ── DataLoader ────────────────────────────────────────────────────────────
+    # ── Pre-tokenize entire training set once ─────────────────────────────────
+    # Doing this up front (rather than on-the-fly in __getitem__) avoids the
+    # PyTorch multiprocessing + HuggingFace tokenizer deadlock that causes a
+    # hang after epoch 1 on Linux GPU instances. It also speeds up subsequent
+    # epochs since there's no repeated tokenizer work.
     if isinstance(X_train, pd.Series):
         X_train = X_train.tolist()
 
-    dataset = PayeeDataset(
-        texts=X_train,
-        labels=y_train,
-        tokenizer=tokenizer,
+    print(f"[transformer] Pre-tokenizing {len(X_train):,} training samples ...")
+    encodings = tokenizer(
+        X_train,
         max_length=model_cfg["max_length"],
+        padding="max_length",
+        truncation=True,
+        return_tensors="pt",
     )
+    dataset = TensorDataset(
+        encodings["input_ids"],
+        encodings["attention_mask"],
+        torch.tensor(y_train, dtype=torch.long),
+    )
+    print(f"[transformer] Pre-tokenization complete.")
+
+    # num_workers=0: keeps data loading in the main process.
+    # Belt-and-suspenders alongside pre-tokenization — eliminates any
+    # remaining fork-safety risk from the tokenizer's Rust backend.
     loader = DataLoader(
         dataset,
         batch_size=model_cfg["batch_size"],
         shuffle=True,
-        num_workers=2,
+        num_workers=0,
         pin_memory=(device.type == "cuda"),
     )
 
@@ -183,9 +169,7 @@ def train_transformer(
     for epoch in range(model_cfg["num_epochs"]):
         total_loss = 0.0
         for step, batch in enumerate(loader):
-            input_ids      = batch["input_ids"].to(device)
-            attention_mask = batch["attention_mask"].to(device)
-            labels         = batch["labels"].to(device)
+            input_ids, attention_mask, labels = [t.to(device) for t in batch]
 
             optimizer.zero_grad()
             outputs = model(
