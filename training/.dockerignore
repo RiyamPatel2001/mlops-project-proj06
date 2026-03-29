@@ -11,5 +11,5 @@ __pycache__/
 *.pyc
 *.pyo
 
-# .dockerignore itself
-.dockerignore
+# configuration files
+config.yaml
