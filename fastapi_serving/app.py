@@ -13,10 +13,11 @@ Configure via environment variables:
 import os
 import json
 import logging
+from datetime import datetime
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ MODEL_BACKEND = os.getenv("MODEL_BACKEND", "onnx")
 MODEL_PATH = os.getenv("MODEL_PATH", f"models/{MODEL_TYPE}")
 ONNX_PATH = os.getenv("ONNX_PATH", f"models/{MODEL_TYPE}_onnx/model.onnx")
 LABEL_MAP_PATH = os.getenv("LABEL_MAP_PATH", f"models/{MODEL_TYPE}/label_map.json")
+MODEL_VERSION = os.getenv("MODEL_VERSION", "v1")
 
 app = FastAPI(
     title="Transaction Classification API",
@@ -35,13 +37,25 @@ app = FastAPI(
 
 
 class TransactionRequest(BaseModel):
+    """Strict JSON body for POST /predict (no extra keys)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    transaction_id: str
     payee: str
     amount: float
-    day_of_week: str
+    date: str
 
 
 class PredictionResponse(BaseModel):
-    category: str
+    """Strict JSON response from POST /predict."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    transaction_id: str
+    prediction_category: str
+    confidence: float
+    model_version: str
 
 
 label_map = None
@@ -215,35 +229,56 @@ def predict_fasttext_fn(text: str):
     return label, float(probs[0])
 
 
-def _build_model_input(request: TransactionRequest) -> str:
-    """Combine request fields into the text representation the model expects."""
-    return f"{request.payee} {request.amount} {request.day_of_week}"
+def _date_to_weekday(date_str: str) -> str:
+    """Parse ISO date (e.g. 2024-03-15) to weekday name for model input."""
+    d = date_str.strip()
+    if "T" in d:
+        d = d.split("T", 1)[0]
+    try:
+        dt = datetime.fromisoformat(d)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid date format (use ISO date, e.g. 2024-03-15): {e}",
+        ) from e
+    return dt.strftime("%A")
+
+
+def _build_model_input(payee: str, amount: float, day_of_week: str) -> str:
+    """Combine fields into the text representation the model expects."""
+    return f"{payee} {amount} {day_of_week}"
 
 
 @app.post("/predict", response_model=PredictionResponse)
 def predict(request: TransactionRequest):
-    text = _build_model_input(request)
+    dow = _date_to_weekday(request.date)
+    text = _build_model_input(request.payee, request.amount, dow)
 
     try:
         if MODEL_TYPE in ("distilbert", "minilm"):
             if MODEL_BACKEND == "pytorch":
-                category, _ = predict_transformer_pytorch(text)
+                category, confidence = predict_transformer_pytorch(text)
             else:
-                category, _ = predict_transformer_onnx(text)
+                category, confidence = predict_transformer_onnx(text)
         elif MODEL_TYPE == "tfidf_logreg":
             if MODEL_BACKEND == "onnx":
-                category, _ = predict_sklearn_onnx_fn(text)
+                category, confidence = predict_sklearn_onnx_fn(text)
             else:
-                category, _ = predict_sklearn_native(text)
+                category, confidence = predict_sklearn_native(text)
         elif MODEL_TYPE == "fasttext":
-            category, _ = predict_fasttext_fn(text)
+            category, confidence = predict_fasttext_fn(text)
         else:
             raise ValueError(f"Unknown MODEL_TYPE: {MODEL_TYPE}")
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-    return PredictionResponse(category=category)
+    return PredictionResponse(
+        transaction_id=request.transaction_id,
+        prediction_category=category,
+        confidence=confidence,
+        model_version=MODEL_VERSION,
+    )
 
 
 @app.get("/health")

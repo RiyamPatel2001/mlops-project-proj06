@@ -9,4 +9,4 @@ scikit-learn
 joblib
 numpy
 pandas
-pydantic
+pydantic>=2.0
