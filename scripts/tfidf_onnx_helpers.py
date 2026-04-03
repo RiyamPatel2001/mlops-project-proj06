@@ -51,18 +51,34 @@ def fit_surrogate_pipeline(csv_path: str) -> Pipeline:
     return pipe
 
 
+def _classifier_from_pipeline(pipe: Pipeline) -> LogisticRegression:
+    for key in ("classifier", "clf", "model"):
+        step = pipe.named_steps.get(key)
+        if isinstance(step, LogisticRegression):
+            return step
+    for _, step in pipe.named_steps.items():
+        if isinstance(step, LogisticRegression):
+            return step
+    raise ValueError("Pipeline has no LogisticRegression step (expected classifier/clf/model).")
+
+
 def export_pipeline_to_onnx_file(pipe: Pipeline, path: str) -> None:
     d = os.path.dirname(os.path.abspath(path))
     if d:
         os.makedirs(d, exist_ok=True)
     initial_type = [("input", StringTensorType([None, 1]))]
     last_err: Exception | None = None
+    clf = _classifier_from_pipeline(pipe)
+    # zipmap=False: probabilities as tensor (Triton ONNX backend rejects SEQUENCE / ZipMap).
+    skl_opts = {id(clf): {"zipmap": False}, LogisticRegression: {"zipmap": False}}
+
     for opset in (17, 15, 13, 11):
         try:
             onnx_model = convert_sklearn(
                 pipe,
                 initial_types=initial_type,
                 target_opset=opset,
+                options=skl_opts,
             )
             with open(path, "wb") as f:
                 f.write(onnx_model.SerializeToString())
