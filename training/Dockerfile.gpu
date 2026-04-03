@@ -18,11 +18,18 @@ COPY . .
 # Runtime overrides:
 #   MLFLOW_TRACKING_URI  — point at the Chameleon MLflow VM
 #
-# GPU run command:
-#   docker run --rm --gpus all \
-#     -v $(pwd)/data:/app/data \
-#     -v $(pwd)/models/artifacts:/app/models/artifacts \
-#     -e MLFLOW_TRACKING_URI=http://<mlflow-vm-ip>:8000 \
-#     categorizer-training-gpu
+# docker run --rm --gpus all \
+#   -v $(pwd)/data:/app/data \
+#   -v $(pwd)/training/models/artifacts:/app/training/models/artifacts \
+#   -e MLFLOW_TRACKING_URI=http://129.114.26.151:8000 \
+#   --entrypoint python \
+#   categorizer-training-gpu \
+#   training/sweep.py --model minilm
+# OR
+# docker run --rm --gpus all \
+#   -v $(pwd)/data:/app/data \
+#   -v $(pwd)/training/models/artifacts:/app/training/models/artifacts \
+#   -e MLFLOW_TRACKING_URI=http://129.114.26.151:8000 \
+#   categorizer-training-gpu \
  
 ENTRYPOINT ["python", "training/train.py", "--config", "training/config.yaml"]

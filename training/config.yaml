@@ -11,7 +11,7 @@
 # ── Which model to train ──────────────────────────────────────
 # Options (as you build them out):
 #   tfidf_logreg | fasttext | minilm | distilbert
-model: minilm
+model: distilbert
 
 # ── Data paths ────────────────────────────────────────────────
 data:

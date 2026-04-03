@@ -22,7 +22,9 @@ HuggingFace tokenizer incompatibility). Fixed by:
 from __future__ import annotations
 
 import os
+import time
 
+import mlflow
 import numpy as np
 import pandas as pd
 import torch
@@ -108,6 +110,15 @@ def train_transformer(
     num_labels = len(set(y_train.tolist()))
     device     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[transformer] Device: {device}")
+
+    # Log GPU environment as MLflow params so runs are reproducible
+    if torch.cuda.is_available():
+        mlflow.log_param("gpu_name",       torch.cuda.get_device_name(0))
+        mlflow.log_param("cuda_version",   torch.version.cuda)
+        mlflow.log_param("gpu_memory_gb",  round(
+            torch.cuda.get_device_properties(0).total_memory / (1024 ** 3), 2
+        ))
+
     print(f"[transformer] Loading {hf_model_name} ...")
 
     # ── Load tokenizer + model ────────────────────────────────────────────────
@@ -167,6 +178,7 @@ def train_transformer(
     # ── Training loop ─────────────────────────────────────────────────────────
     model.train()
     for epoch in range(model_cfg["num_epochs"]):
+        epoch_start = time.perf_counter()
         total_loss = 0.0
         for step, batch in enumerate(loader):
             input_ids, attention_mask, labels = [t.to(device) for t in batch]
@@ -191,7 +203,11 @@ def train_transformer(
                 )
 
         avg_loss = total_loss / len(loader)
-        print(f"  epoch {epoch+1} complete — avg_loss={avg_loss:.4f}")
+        elapsed  = time.perf_counter() - epoch_start
+        print(f"  epoch {epoch+1} complete — avg_loss={avg_loss:.4f}  time={elapsed:.1f}s")
+
+        mlflow.log_metric("epoch_loss", avg_loss, step=epoch)
+        mlflow.log_metric("epoch_time", round(elapsed, 2), step=epoch)
 
     clf = TransformerClassifier(
         model=model,
