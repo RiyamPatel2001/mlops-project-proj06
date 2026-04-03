@@ -204,10 +204,12 @@ Use **`docker/docker-compose-triton.yaml`**.
 3. Start Triton and the Triton SDK Jupyter (the Jupyter service **builds** a thin image on top of `tritonserver:*-py3-sdk` so `jupyter` / `python3 -m jupyter notebook` exists — upstream SDK images may ship without a `jupyter` binary):
 
 ```bash
-docker compose -f docker/docker-compose-triton.yaml build jupyter
+docker compose -f docker/docker-compose-triton.yaml build triton_server jupyter
 docker compose -f docker/docker-compose-triton.yaml up -d
 docker logs triton_server -f
 ```
+
+**TF-IDF ONNX + locale:** If logs show `Failed to construct locale with name:en_US.UTF-8` for `tfidf_logreg_classifier`, the custom **`Dockerfile.triton-server`** (installed `locales` + `en_US.UTF-8`) fixes it—run **`build triton_server`** after pulling. Triton is started with **`--strict-readiness=false`** so one broken model does not stop the whole server.
 
 **GPU:** If `triton_server` fails with `could not select device driver "nvidia"`, install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) on the host, run `sudo nvidia-ctk runtime configure --runtime=docker`, restart Docker, then `up -d` again.
 

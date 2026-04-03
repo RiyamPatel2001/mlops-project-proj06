@@ -1,13 +1,21 @@
 services:
   triton_server:
-    image: nvcr.io/nvidia/tritonserver:24.08-py3
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.triton-server
     ports:
       - "8000:8000"
       - "8001:8001"
       - "8002:8002"
     volumes:
       - ../triton/models:/models
-    command: ["tritonserver", "--model-repository=/models"]
+    # strict-readiness=false: server stays up if one model fails (e.g. missing artifact).
+    command:
+      [
+        "tritonserver",
+        "--model-repository=/models",
+        "--strict-readiness=false",
+      ]
     deploy:
       resources:
         reservations:
