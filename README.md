@@ -211,7 +211,7 @@ docker logs triton_server -f
 
 **TF-IDF ONNX + locale:** If logs show `Failed to construct locale with name:en_US.UTF-8` for `tfidf_logreg_classifier`, the custom **`Dockerfile.triton-server`** (installed `locales` + `en_US.UTF-8`) fixes it—run **`build triton_server`** after pulling.
 
-**Process exit vs readiness:** `failed to load all models` followed by container exit means Triton aborted startup. **`--strict-readiness=false`** alone does not prevent that. Compose starts Triton with **`--exit-on-error=false`** so a bad model (e.g. TF‑IDF SEQUENCE below) leaves **`distilbert_classifier`** / **`minilm_classifier`** running while `tfidf_logreg_classifier` stays UNAVAILABLE.
+**Skip broken TF-IDF at startup:** Compose runs Triton in **explicit model-control mode** and only loads **`distilbert_classifier`** + **`minilm_classifier`**. This prevents the recurring `failed to load all models` startup error caused by TF‑IDF ZipMap output type mismatch.
 
 **TF-IDF ONNX + SEQUENCE:** If logs show `ONNX_TYPE_SEQUENCE` / `output_probability`, the ONNX was exported with ZipMap (default skl2onnx). Re-export with the updated **`scripts/tfidf_onnx_helpers.py`** (`zipmap=False`), then copy `models/tfidf_logreg_onnx/model.onnx` to **`triton/models/tfidf_logreg_classifier/1/`** and restart Triton. **`triton/models/tfidf_logreg_classifier/config.pbtxt`** must list tensor outputs **`output_label`** (INT64) and **`output_probability`** (FP32).
 

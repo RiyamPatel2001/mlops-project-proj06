@@ -9,15 +9,15 @@ services:
       - "8002:8002"
     volumes:
       - ../triton/models:/models
-    # strict-readiness=false: HTTP/gRPC can succeed while a model is UNAVAILABLE.
-    # exit-on-error=false: do not terminate the process when one model fails to load
-    # (e.g. tfidf ZipMap SEQUENCE); other models stay READY.
+    # Run explicit load list so Triton never attempts the known-bad tfidf ZipMap ONNX.
+    # This removes startup "failed to load all models" and keeps benchmark models ready.
     command:
       [
         "tritonserver",
         "--model-repository=/models",
-        "--strict-readiness=false",
-        "--exit-on-error=false",
+        "--model-control-mode=explicit",
+        "--load-model=distilbert_classifier",
+        "--load-model=minilm_classifier",
       ]
     deploy:
       resources:
