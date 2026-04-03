@@ -14,8 +14,11 @@ RUN pip install --no-cache-dir \
 RUN pip install --no-cache-dir \
     transformers \
     tokenizers \
-    optimum \
-    onnx \
+    "optimum[onnxruntime]" \
+    sentencepiece \
+    tiktoken \
+    ipywidgets \
+    "onnx>=1.14,<1.16" \
     onnxruntime \
     neural_compressor \
     fasttext-wheel \

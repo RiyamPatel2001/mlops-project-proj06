@@ -1,0 +1,10 @@
+option,model,config,hardware,model_size_mb,p50_latency_ms,p95_latency_ms,p99_latency_ms,throughput_fps,batch_throughput_fps
+minilm_pytorch_cpu,minilm,pytorch_cpu,CPU,91.86,8.65,8.91,8.92,115.49,853.97
+minilm_onnx_no_opt,minilm,onnx_no_opt,CPU,91.01,3.2,3.25,3.27,313.05,1355.04
+minilm_onnx_optimized,minilm,onnx_optimized,CPU,90.97,2.62,2.64,2.65,382.07,1622.52
+minilm_dynamic_quant,minilm,dynamic_quant,CPU,23.49,2.91,2.97,3.0,343.22,1673.34
+minilm_static_quant_aggressive,minilm,static_quant_aggressive,CPU,23.5,3.32,3.43,3.49,301.15,1200.54
+minilm_static_quant_conservative,minilm,static_quant_conservative,CPU,59.25,2.38,2.89,2.92,391.44,1848.32
+minilm_onnx_cuda,minilm,onnx_cuda,P100,91.01,2.15,2.22,2.5,463.06,1774.81
+minilm_onnx_tensorrt,minilm,onnx_tensorrt,P100,91.01,2.2,2.45,2.83,447.52,1917.1
+minilm_onnx_openvino,minilm,onnx_openvino,CPU (OpenVINO),91.01,2.1,2.13,2.19,475.02,1783.72

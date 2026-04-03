@@ -1,36 +1,36 @@
 Option,Endpoint URL,Model,Model Version,Code Version,Hardware,Model Size (MB),p50 Latency (ms),p95 Latency (ms),p99 Latency (ms),Throughput (FPS),Batch Throughput (FPS),Notes
-distilbert_pytorch_cpu,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Baseline
-distilbert_onnx_no_opt,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,,,,,,,ONNX no optimization
-distilbert_onnx_optimized,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,,,,,,,ORT_ENABLE_EXTENDED
-distilbert_dynamic_quant,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Intel Neural Compressor dynamic
-distilbert_static_quant_aggressive,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,,,,,,,INC quant_level=1 tolerable_loss=0.05
-distilbert_static_quant_conservative,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,,,,,,,INC quant_level=0 tolerable_loss=0.01
-distilbert_onnx_cuda,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,CUDAExecutionProvider
-distilbert_onnx_tensorrt,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,TensorrtExecutionProvider
-distilbert_onnx_openvino,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU (OpenVINO),,,,,,,OpenVINOExecutionProvider
-minilm_pytorch_cpu,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Baseline
-minilm_onnx_no_opt,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,,,,,,,ONNX no optimization
-minilm_onnx_optimized,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,,,,,,,ORT_ENABLE_EXTENDED
-minilm_dynamic_quant,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Intel Neural Compressor dynamic
-minilm_static_quant_aggressive,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,,,,,,,INC quant_level=1
-minilm_static_quant_conservative,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,,,,,,,INC quant_level=0
-minilm_onnx_cuda,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,CUDAExecutionProvider
-minilm_onnx_tensorrt,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,TensorrtExecutionProvider
-minilm_onnx_openvino,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU (OpenVINO),,,,,,,OpenVINOExecutionProvider
-tfidf_logreg_sklearn_cpu,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Baseline sklearn
-tfidf_logreg_onnx_no_opt,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,skl2onnx conversion
-tfidf_logreg_onnx_optimized,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,ORT_ENABLE_EXTENDED
-tfidf_logreg_dynamic_quant,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Dynamic quantization
-tfidf_logreg_static_quant_aggressive,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,May not apply to linear model
-tfidf_logreg_static_quant_conservative,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,May not apply to linear model
-tfidf_logreg_onnx_cuda,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,Minimal benefit expected
-tfidf_logreg_onnx_openvino,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU (OpenVINO),,,,,,,
-fasttext_native_cpu,http://<IP>:8000/predict,fasttext,<mlflow_run_id>,<git_sha>,CPU,,,,,,,Native baseline (very fast)
-fasttext_onnx,N/A,fasttext,,,,,,,,,,N/A - no ONNX export path
-fasttext_gpu,N/A,fasttext,,,,,,,,,,N/A - CPU-only library
-best_model_fastapi_sequential,http://<IP>:8000/predict,<best>,<mlflow_run_id>,<git_sha>,<hw>,,,,,,,FastAPI 100 sequential requests
-best_model_fastapi_concurrent,http://<IP>:8000/predict,<best>,<mlflow_run_id>,<git_sha>,<hw>,,,,,,,FastAPI 1000 concurrent (16 workers)
-best_model_triton_1_instance,http://<IP>:8000,<best>,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,Triton 1 GPU instance
-best_model_triton_2_instances,http://<IP>:8000,<best>,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,Triton 2 GPU instances
-best_model_triton_dynamic_batch,http://<IP>:8000,<best>,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,Triton + dynamic batching
-best_model_triton_combined,http://<IP>:8000,<best>,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,"BEST: ONNX + 2 instances + dynamic batching"
+distilbert_pytorch_cpu,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,268.86,10.31,10.61,11.72,97.83,472.68,"Baseline; metrics from Evaluation_Results/jupyter_eval_cpu_csv"
+distilbert_onnx_no_opt,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,268.02,9.2,9.24,9.39,111.94,642.05,ONNX no optimization; jupyter_eval_cpu_csv
+distilbert_onnx_optimized,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,267.98,7.7,7.78,7.81,129.73,791.38,ORT_ENABLE_EXTENDED; jupyter_eval_cpu_csv
+distilbert_dynamic_quant,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,69.27,3.15,3.18,3.27,316.99,947.95,Intel Neural Compressor dynamic; jupyter_eval_cpu_csv
+distilbert_static_quant_aggressive,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,69.24,3.17,3.22,3.22,315.03,799.21,INC quant_level=1; jupyter_eval_cpu_csv
+distilbert_static_quant_conservative,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU,140.78,3.26,3.47,3.6,304.2,780.0,INC quant_level=0; jupyter_eval_cpu_csv
+distilbert_onnx_cuda,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,P100,268.02,7.52,7.58,7.69,132.68,791.24,CUDAExecutionProvider; jupyter_eval_gpu_csv (not RTX 6000)
+distilbert_onnx_tensorrt,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,P100,268.02,7.6,7.75,7.84,131.16,793.99,TensorrtExecutionProvider; jupyter_eval_gpu_csv
+distilbert_onnx_openvino,http://<IP>:8000/predict,distilbert,<mlflow_run_id>,<git_sha>,CPU (OpenVINO),268.02,7.69,7.87,8.07,129.49,817.75,OpenVINOExecutionProvider; jupyter_evel_openvino
+minilm_pytorch_cpu,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,91.86,8.65,8.91,8.92,115.49,853.97,Baseline; jupyter_eval_cpu_csv
+minilm_onnx_no_opt,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,91.01,3.2,3.25,3.27,313.05,1355.04,ONNX no optimization; jupyter_eval_cpu_csv
+minilm_onnx_optimized,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,90.97,2.62,2.64,2.65,382.07,1622.52,ORT_ENABLE_EXTENDED; jupyter_eval_cpu_csv
+minilm_dynamic_quant,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,23.49,2.91,2.97,3.0,343.22,1673.34,Intel Neural Compressor dynamic; jupyter_eval_cpu_csv
+minilm_static_quant_aggressive,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,23.5,3.32,3.43,3.49,301.15,1200.54,INC quant_level=1; jupyter_eval_cpu_csv
+minilm_static_quant_conservative,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU,59.25,2.38,2.89,2.92,391.44,1848.32,INC quant_level=0; jupyter_eval_cpu_csv
+minilm_onnx_cuda,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,P100,91.01,2.13,2.2,2.46,467.28,1867.45,CUDAExecutionProvider; jupyter_eval_gpu_csv
+minilm_onnx_tensorrt,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,P100,91.01,2.04,2.12,2.59,482.03,1878.49,TensorrtExecutionProvider; jupyter_eval_gpu_csv
+minilm_onnx_openvino,http://<IP>:8000/predict,minilm,<mlflow_run_id>,<git_sha>,CPU (OpenVINO),91.01,2.09,2.14,2.15,477.83,1924.94,OpenVINOExecutionProvider; jupyter_evel_openvino
+tfidf_logreg_sklearn_cpu,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,0.75,0.94,0.95,0.95,1061.39,12222.84,Baseline sklearn; jupyter_eval_cpu_csv
+tfidf_logreg_onnx_no_opt,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,"No row in Evaluation_Results (skl2onnx/export may have been skipped)"
+tfidf_logreg_onnx_optimized,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,No row in Evaluation_Results
+tfidf_logreg_dynamic_quant,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,No row in Evaluation_Results
+tfidf_logreg_static_quant_aggressive,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,No row in Evaluation_Results
+tfidf_logreg_static_quant_conservative,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU,,,,,,,No row in Evaluation_Results
+tfidf_logreg_onnx_cuda,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,P100,,,,,,,No row in Evaluation_Results
+tfidf_logreg_onnx_openvino,http://<IP>:8000/predict,tfidf_logreg,<mlflow_run_id>,<git_sha>,CPU (OpenVINO),,,,,,,No row in Evaluation_Results
+fasttext_native_cpu,http://<IP>:8000/predict,fasttext,<mlflow_run_id>,<git_sha>,CPU,800.15,0.01,0.01,0.02,81941.96,80913.44,Native baseline; jupyter_eval_cpu_csv
+fasttext_onnx,N/A,fasttext,,,,,,,,,N/A - no ONNX export path; empty rows in Evaluation_Results
+fasttext_gpu,N/A,fasttext,,,,,,,,,N/A - CPU-only library; empty rows in Evaluation_Results
+best_model_fastapi_sequential,http://<IP>:8000/predict,<best>,<mlflow_run_id>,<git_sha>,<hw>,,,,,,,No matching CSV in Evaluation_Results (serving benchmark not run)
+best_model_fastapi_concurrent,http://<IP>:8000/predict,<best>,<mlflow_run_id>,<git_sha>,<hw>,,,,,,,No matching CSV in Evaluation_Results
+best_model_triton_1_instance,http://<IP>:8000,<best>,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,No matching CSV in Evaluation_Results
+best_model_triton_2_instances,http://<IP>:8000,<best>,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,No matching CSV in Evaluation_Results
+best_model_triton_dynamic_batch,http://<IP>:8000,<best>,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,No matching CSV in Evaluation_Results
+best_model_triton_combined,http://<IP>:8000,<best>,<mlflow_run_id>,<git_sha>,RTX 6000,,,,,,,"BEST: ONNX + 2 instances + dynamic batching — not measured in Evaluation_Results"

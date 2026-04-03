@@ -21,7 +21,9 @@ services:
       - triton_net
 
   jupyter:
-    image: nvcr.io/nvidia/tritonserver:24.08-py3-sdk
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.triton-jupyter
     ports:
       - "8888:8888"
     volumes:
@@ -29,7 +31,7 @@ services:
       - ../scripts:/workspace/scripts
       - ../triton:/workspace/triton
       - ../data:/workspace/data
-    command: ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
+    working_dir: /workspace
     container_name: jupyter_triton
     shm_size: "16g"
     networks:

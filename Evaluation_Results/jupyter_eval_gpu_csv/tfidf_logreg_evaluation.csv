@@ -1,0 +1,2 @@
+option,model,config,hardware,model_size_mb,p50_latency_ms,p95_latency_ms,p99_latency_ms,throughput_fps,batch_throughput_fps
+tfidf_logreg_sklearn_cpu,tfidf_logreg,sklearn_cpu,CPU,0.75,0.98,0.99,1.03,1020.53,12024.12

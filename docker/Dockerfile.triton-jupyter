@@ -1,0 +1,7 @@
+# Triton SDK base image no longer ships a `jupyter` binary on PATH; install notebook stack.
+FROM nvcr.io/nvidia/tritonserver:24.08-py3-sdk
+
+USER root
+RUN pip install --no-cache-dir "notebook>=6.5" "jupyter-server>=2.0" ipywidgets
+
+CMD ["python3", "-m", "jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
