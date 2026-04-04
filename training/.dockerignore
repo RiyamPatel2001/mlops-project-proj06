@@ -13,3 +13,7 @@ __pycache__/
 
 # configuration files
 config.yaml
+
+# Sweep file
+sweep-cpu.py
+sweep-gpu.py
