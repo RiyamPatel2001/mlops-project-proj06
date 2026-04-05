@@ -11,8 +11,7 @@ This project compares multiple NLP classifiers for transaction categorization, t
 
 ## Fast, Good, Cheap choices
 
-- **Fast:** `fasttext_native_cpu` (lowest latency and highest throughput in model-level tests).
-- **Good (best balance):** `minilm_static_quant_conservative` (strong speed/size tradeoff on CPU).
+- **Fast & Good (best balance):** `fasttext_native_cpu` (lowest latency and highest throughput in model-level tests).
 - **Cheap:** `tfidf_logreg_sklearn_cpu` (smallest model and low-cost CPU serving).
 
 ## Why Triton was not used for FastText
