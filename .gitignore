@@ -1,42 +1,13 @@
-# Excluded reference files
-Reference Serving Evaluation Approach in Detail.pdf
-Reference System optimizations for serving approach in detail.pdf
-Sample Evaluation table.csv
-transactions.csv
-
-# macOS
-.DS_Store
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.egg-info/
-dist/
-build/
-.env
-.venv/
-venv/
-
-# Jupyter
-.ipynb_checkpoints/
-
-# Models (large artifacts -- download via download_models.py)
-models/
-
-# Results (generated at runtime)
-results/*.csv
-!results/serving_options_table.csv
-results/
-README.md
 data/raw/
 data/embeddings/
 *.pt
 *.bin
 *.pkl
+__pycache__/
 mlruns/
 mlartifacts/
 models/artifacts/
 training/models/artifacts/
+__pycache__/
+*.pyc
+*.pyo
