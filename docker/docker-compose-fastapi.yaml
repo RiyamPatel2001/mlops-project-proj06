@@ -1,0 +1,42 @@
+services:
+  fastapi_server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.fastapi
+    command: ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1}"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../models:/app/models
+    environment:
+      MODEL_TYPE: fasttext
+      MODEL_BACKEND: native
+      # Tune with: UVICORN_WORKERS=<N> docker compose ... up -d
+      UVICORN_WORKERS: 1
+      # FastText .bin/.ftz under this directory (see fastapi_serving/app.py load_fasttext)
+      MODEL_PATH: /app/models/fasttext
+      LABEL_MAP_PATH: /app/models/fasttext/label_map.json
+      MODEL_VERSION: v1
+    container_name: fastapi_server
+    networks:
+      - serving_net
+
+  jupyter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jupyter-eval
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../evaluation:/home/jovyan/work/evaluation
+      - ../scripts:/home/jovyan/work/scripts
+      - ../models:/home/jovyan/work/models
+      - ../data:/home/jovyan/work/data
+    shm_size: "16g"
+    container_name: jupyter
+    networks:
+      - serving_net
+
+networks:
+  serving_net:
+    driver: bridge
