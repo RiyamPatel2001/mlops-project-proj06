@@ -1,0 +1,33 @@
+FROM jupyter/base-notebook:python-3.10
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+USER ${NB_UID}
+
+RUN pip install --no-cache-dir \
+    torch --index-url https://download.pytorch.org/whl/cpu
+
+RUN pip install --no-cache-dir \
+    transformers \
+    tokenizers \
+    "optimum[onnxruntime]" \
+    sentencepiece \
+    tiktoken \
+    ipywidgets \
+    "onnx>=1.14,<1.16" \
+    onnxruntime \
+    neural_compressor \
+    fasttext-wheel \
+    scikit-learn \
+    skl2onnx \
+    mlflow \
+    pandas \
+    numpy \
+    matplotlib \
+    joblib
+
+WORKDIR /home/jovyan/work
