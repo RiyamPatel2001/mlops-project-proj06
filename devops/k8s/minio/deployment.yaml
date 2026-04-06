@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: mlops
+  labels:
+    app: minio
+    project: proj06
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+        project: proj06
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: accesskey
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: secretkey
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: minio-storage
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: minio-storage
+          persistentVolumeClaim:
+            claimName: minio-pvc

@@ -1,0 +1,43 @@
+# Argo CD Application — Transaction Classifier (Serving)
+#
+# Image Updater annotations tell it:
+#   - Which image to watch (ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier)
+#   - Which tag strategy to use (semver — picks highest semantic version tag)
+#   - How to write back changes (git — commits updated manifest back to repo)
+#
+# Automation loop:
+#   Riyam retrains → Jayraj pushes ghcr.io/.../transaction-classifier:v<N>
+#   → Image Updater detects new tag → commits manifest update to Git
+#   → Argo CD syncs → new model deployed automatically
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: transaction-classifier
+  namespace: argocd
+  annotations:
+    # Image Updater: watch this image
+    argocd-image-updater.argoproj.io/image-list: classifier=ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier
+    # Use semver strategy — always deploy highest version tag (v1.0.0, v1.1.0, etc.)
+    argocd-image-updater.argoproj.io/classifier.update-strategy: semver
+    # Write back to Git (GitOps — manifest in repo stays as source of truth)
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git-branch: main
+    # Which parameter to update in the manifest
+    argocd-image-updater.argoproj.io/classifier.helm.image-name: image
+    argocd-image-updater.argoproj.io/classifier.kustomize.image-name: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/RiyamPatel2001/mlops-project-proj06
+    targetRevision: HEAD
+    path: devops/k8s/serving
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mlops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -11,3 +11,23 @@ training/models/artifacts/
 __pycache__/
 *.pyc
 *.pyo
+
+# OpenStack / Chameleon credentials — NEVER commit these
+*-openrc.sh
+*-openrc
+*.env
+.env
+openstack.env
+
+# Kubernetes credentials
+kubeconfig
+*.kubeconfig
+chameleon-proj06.yaml
+
+# Terraform — credentials and state (contain secrets / sensitive UUIDs)
+clouds.yaml
+terraform.tfvars
+terraform.tfstate
+terraform.tfstate.backup
+.terraform/
+.terraform.lock.hcl

@@ -1,0 +1,93 @@
+# =============================================================================
+# Transaction Classifier (FastAPI) — Deployment
+# =============================================================================
+# Inference API for ML transaction categorisation.
+# Built from serving/docker/Dockerfile.fastapi — push image before deploying:
+#
+#   docker build -t ghcr.io/proj06/transaction-classifier:latest \
+#     -f serving/docker/Dockerfile.fastapi serving/
+#   docker push ghcr.io/proj06/transaction-classifier:latest
+#
+# Model files live on the serving-models-pvc at /app/models.
+# Copy them onto the PVC once the cluster is up (see README for commands).
+#
+# Access: http://<CHAMELEON-FLOATING-IP>:30508/predict
+#         http://<CHAMELEON-FLOATING-IP>:30508/health
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-classifier
+  namespace: mlops
+  labels:
+    app: transaction-classifier
+    project: proj06
+  annotations:
+    # Argo CD Image Updater — automatically deploys new model versions
+    # When serving team pushes ghcr.io/.../transaction-classifier:vX.Y.Z,
+    # Image Updater detects it and commits the updated tag to Git.
+    # Argo CD then syncs the new image to the cluster automatically.
+    argocd-image-updater.argoproj.io/image-list: classifier=ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier
+    argocd-image-updater.argoproj.io/classifier.update-strategy: semver
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git-branch: main
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transaction-classifier
+  template:
+    metadata:
+      labels:
+        app: transaction-classifier
+        project: proj06
+    spec:
+      containers:
+        - name: fastapi
+          # Replace with the actual pushed image before deploying
+          image: ghcr.io/proj06/transaction-classifier:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: MODEL_TYPE
+              value: "fasttext"
+            - name: MODEL_BACKEND
+              value: "native"
+            - name: MODEL_PATH
+              value: "/app/models/fasttext"
+            - name: LABEL_MAP_PATH
+              value: "/app/models/fasttext/label_map.json"
+            - name: MODEL_VERSION
+              value: "v1"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: serving-models
+              mountPath: /app/models
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 3
+      volumes:
+        - name: serving-models
+          persistentVolumeClaim:
+            claimName: serving-models-pvc
+      restartPolicy: Always
