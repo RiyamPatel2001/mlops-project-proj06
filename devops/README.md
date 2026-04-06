@@ -1,6 +1,6 @@
 # DevOps / Platform — proj06
 
-Owner: Puneeth (pk3058@nyu.edu)
+Puneeth (pk3058@nyu.edu)
 
 3-node Kubernetes cluster running on Chameleon KVM@TACC. All shared platform services (MLflow, PostgreSQL, MinIO, ActualBudget) run here. Cluster floating IP: `129.114.27.175`
 
