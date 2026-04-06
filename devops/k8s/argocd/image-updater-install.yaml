@@ -1,0 +1,122 @@
+# Argo CD Image Updater v0.15.1
+# Watches container registries for new image tags and automatically
+# updates K8s manifests in Git when a new model image is pushed.
+#
+# Compatible with Argo CD v2.11.0 (installed by Kubespray).
+# Not used in any course lab — this is the DevOps/Platform bonus deliverable.
+#
+# Operational win: when the serving team pushes a new transaction-classifier
+# image tag, Image Updater detects it, commits the updated manifest to Git,
+# and Argo CD deploys it — zero manual intervention required.
+#
+# Source: https://github.com/argoproj-labs/argocd-image-updater
+# Install: kubectl apply -f image-updater-install.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argocd-image-updater
+  namespace: argocd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argocd-image-updater
+  namespace: argocd
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-image-updater
+  namespace: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argocd-image-updater
+subjects:
+  - kind: ServiceAccount
+    name: argocd-image-updater
+    namespace: argocd
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-image-updater-config
+  namespace: argocd
+data:
+  # Check for new image tags every 2 minutes
+  update.interval: "2m"
+  # Log level
+  log.level: info
+  # Registry config — ghcr.io for GitHub Container Registry (public, no auth needed for public images)
+  registries.conf: |
+    registries:
+      - name: GitHub Container Registry
+        prefix: ghcr.io
+        api_url: https://ghcr.io
+        ping: yes
+        insecure: no
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-image-updater
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-image-updater
+    app.kubernetes.io/component: image-updater
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-image-updater
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: argocd-image-updater
+    spec:
+      serviceAccountName: argocd-image-updater
+      containers:
+        - name: argocd-image-updater
+          image: quay.io/argoprojlabs/argocd-image-updater:v0.15.1
+          imagePullPolicy: Always
+          args:
+            - run
+          env:
+            - name: ARGOCD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: argocd-image-updater-secret
+                  key: argocd.token
+                  optional: true
+            - name: ARGOCD_SERVER
+              value: argocd-server.argocd.svc.cluster.local
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10

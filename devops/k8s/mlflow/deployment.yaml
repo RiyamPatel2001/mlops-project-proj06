@@ -1,0 +1,99 @@
+# =============================================================================
+# MLflow Tracking Server — Deployment
+# =============================================================================
+# Backend store : PostgreSQL (postgres-credentials secret)
+# Artifact store: MinIO S3-compatible (minio-credentials secret)
+#                 bucket: s3://mlflow-artifacts/
+#
+# Matches gourmetgram-iac lab reference stack exactly.
+# Image pinned to v2.14.1 to match training/requirements.txt.
+#
+# Access: http://<FLOATING-IP>:30500
+# Training clients set: MLFLOW_TRACKING_URI=http://<FLOATING-IP>:30500
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-proj06
+  namespace: mlops
+  labels:
+    app: mlflow-proj06
+    project: proj06
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow-proj06
+  template:
+    metadata:
+      labels:
+        app: mlflow-proj06
+        project: proj06
+    spec:
+      containers:
+        - name: mlflow
+          image: ghcr.io/mlflow/mlflow:v2.14.1
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              pip install psycopg2-binary boto3 --quiet &&
+              mlflow server \
+                --backend-store-uri "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}" \
+                --artifacts-destination s3://mlflow-artifacts/ \
+                --serve-artifacts \
+                --host 0.0.0.0 \
+                --port 5000
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          env:
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: http://minio:9000
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: dbname
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: accesskey
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: secretkey
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 90
+            periodSeconds: 20
+            failureThreshold: 3
