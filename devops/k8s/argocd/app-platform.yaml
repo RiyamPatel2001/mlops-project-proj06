@@ -1,0 +1,28 @@
+# Argo CD Application — Platform Services
+# Manages: namespace, postgres, minio, mlflow, sealed-secrets, actualbudget
+# Any change pushed to devops/k8s/ in Git is automatically synced to the cluster.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mlops-platform
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/RiyamPatel2001/mlops-project-proj06
+    targetRevision: HEAD
+    path: devops/k8s
+    directory:
+      recurse: true
+      exclude: "argocd/*"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mlops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

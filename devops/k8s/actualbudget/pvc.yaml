@@ -1,0 +1,20 @@
+# =============================================================================
+# ActualBudget Persistent Volume Claim
+# =============================================================================
+# ActualBudget stores its SQLite database and user-uploaded files in /data.
+# This PVC ensures that budget data persists across pod restarts.
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: actualbudget-data-pvc
+  namespace: mlops
+  labels:
+    app: actualbudget
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

@@ -1,0 +1,3 @@
+# MLflow no longer needs local PVCs — artifacts go to MinIO (s3://mlflow-artifacts/)
+# and metadata goes to PostgreSQL. Both are deployed as separate services.
+# See devops/k8s/postgres/ and devops/k8s/minio/ for their PVCs.
