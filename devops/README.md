@@ -1,6 +1,6 @@
 # DevOps / Platform — proj06
 
-Puneeth (pk3058@nyu.edu)
+Owner: Puneeth (pk3058@nyu.edu)
 
 3-node Kubernetes cluster running on Chameleon KVM@TACC. All shared platform services (MLflow, PostgreSQL, MinIO, ActualBudget) run here. Cluster floating IP: `129.114.27.175`
 
@@ -88,25 +88,15 @@ No plaintext credentials anywhere in the repo. PostgreSQL and MinIO credentials 
 
 The MLflow deployment pulls credentials via `secretKeyRef` pointing to the sealed secret names. Nothing hardcoded.
 
-## Resource sizing
+## Resource requests
 
-Sized based on observed usage from `kubectl top nodes` and `kubectl top pods -n mlops`:
-
-| Pod | CPU Request | CPU Limit | Mem Request | Mem Limit | Observed CPU | Observed Mem |
-|-----|-------------|-----------|-------------|-----------|--------------|--------------|
-| ActualBudget | 250m | 500m | 256Mi | 512Mi | 1m | 58Mi |
-| MLflow | 500m | 1000m | 512Mi | 1Gi | 2m | 596Mi |
-| PostgreSQL | 250m | 500m | 256Mi | 512Mi | 15m | 88Mi |
-| MinIO | 250m | 500m | 512Mi | 1Gi | 1m | 80Mi |
-| Transaction Classifier | 500m | 1000m | 512Mi | 1Gi | — | — |
-
-Node utilization at time of measurement:
-
-| Node | CPU% | Memory% |
-|------|------|---------|
-| node1 | 14% | 64% |
-| node2 | 13% | 55% |
-| node3 | 12% | 49% |
+| Pod | CPU Request | CPU Limit | Mem Request | Mem Limit |
+|-----|-------------|-----------|-------------|-----------|
+| ActualBudget | 250m | 500m | 256Mi | 512Mi |
+| MLflow | 500m | 1000m | 512Mi | 1Gi |
+| PostgreSQL | 250m | 500m | 256Mi | 512Mi |
+| MinIO | 250m | 500m | 512Mi | 1Gi |
+| Transaction Classifier | 500m | 1000m | 512Mi | 1Gi |
 
 ## Teardown
 
