@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: batch-pipeline
+  namespace: mlops
+  labels:
+    app: batch-pipeline
+    project: proj06
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: batch-pipeline
+        project: proj06
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: batch-pipeline
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/batch-pipeline:latest
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          env:
+            - name: DATA_PATH
+              value: "/data/processed"
+            - name: OUTPUT_PATH
+              value: "/data/versioned"
+          volumeMounts:
+            - name: data-storage
+              mountPath: /data
+      volumes:
+        - name: data-storage
+          persistentVolumeClaim:
+            claimName: data-pvc

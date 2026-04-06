@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serving-eval-gpu
+  namespace: mlops
+  labels:
+    app: serving-eval-gpu
+    project: proj06
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: serving-eval-gpu
+        project: proj06
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: serving-eval-gpu
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/serving-eval-gpu:latest
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "4Gi"
+            limits:
+              cpu: "2000m"
+              memory: "8Gi"
+              nvidia.com/gpu: "1"
+          env:
+            - name: SERVING_ENDPOINT
+              value: "http://transaction-classifier:8000"
+            - name: MODEL_PATH
+              value: "/models"
+          volumeMounts:
+            - name: model-storage
+              mountPath: /models
+      volumes:
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: serving-models-pvc
