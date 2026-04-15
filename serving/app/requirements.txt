@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+# fasttext-wheel is incompatible with NumPy 2.x (copy=False array API)
+numpy<2
+torch --index-url https://download.pytorch.org/whl/cpu
+transformers
+tokenizers
+onnxruntime
+fasttext-wheel
+scikit-learn
+joblib
+pandas
+pydantic>=2.0

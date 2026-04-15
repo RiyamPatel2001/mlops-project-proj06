@@ -70,7 +70,7 @@ def run_training(config_path: str) -> int:
         [sys.executable, TRAIN_SCRIPT, "--config", config_path],
         check=False,
         # Run from the training/ directory so that
-        # importlib.import_module("models.fasttext_model") resolves correctly.
+        # importlib.import_module("models.layer1.fasttext_model") resolves correctly.
         cwd=SCRIPT_DIR,
     )
     return result.returncode
