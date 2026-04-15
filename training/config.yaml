@@ -10,20 +10,22 @@
 
 # ── Which model to train ──────────────────────────────────────
 # Options (as you build them out):
-#   tfidf_logreg | fasttext | minilm | distilbert
-model: distilbert
+#   tfidf_logreg | fasttext | minilm | distilbert | mpnet
+model: mpnet
 
 # ── Data paths ────────────────────────────────────────────────
+# Paths are relative to the training/ directory (where train.py lives).
+# In Docker (WORKDIR=/app/training), data is volume-mounted at /app/data.
 data:
-  raw_path:      data/raw/transactions.csv
-  processed_dir: data/processed/
+  raw_path:      ../data/raw/train.csv
+  processed_dir: ../data/processed/
 
 # ── Split config ──────────────────────────────────────────────
 val_frac:     0.2   # fraction of users held out for validation
 random_state: 42    # controls user split + any model randomness
 
 # ── Model output ──────────────────────────────────────────────
-model_output_dir: training/models/artifacts/
+model_output_dir: models/layer1/artifacts/
 
 # ── MLflow ────────────────────────────────────────────────────
 mlflow:
@@ -57,3 +59,11 @@ distilbert:
   batch_size:       16       # smaller — DistilBERT is heavier than MiniLM
   warmup_steps:     100
   max_length:       64
+
+mpnet:
+  learning_rate:    2.0e-5
+  num_epochs:       3
+  batch_size:       32       # all-mpnet is same size as MiniLM (768-dim), RTX 6000 handles 32
+  warmup_steps:     100
+  max_length:       128      # more than enough for payee strings; matches mpnet's sweet spot
+

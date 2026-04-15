@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: data-generator
+  namespace: mlops
+  labels:
+    app: data-generator
+    project: proj06
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: data-generator
+        project: proj06
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: data-generator
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/data-generator:latest
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          env:
+            - name: OUTPUT_PATH
+              value: "/data/synthetic"
+            - name: NUM_SAMPLES
+              value: "1000"
+          volumeMounts:
+            - name: data-storage
+              mountPath: /data
+      volumes:
+        - name: data-storage
+          persistentVolumeClaim:
+            claimName: data-pvc

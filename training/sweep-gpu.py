@@ -37,7 +37,7 @@ TRAIN_PY   = os.path.join(SCRIPT_DIR, "train.py")
 LEARNING_RATES = [2e-5, 3e-5, 5e-5]
 EPOCHS         = [3]           # add 2 here to also sweep num_epochs
 
-MODELS = ["minilm", "distilbert"]
+MODELS = ["minilm", "distilbert", "mpnet"]
 
 BASE_CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.yaml")
 

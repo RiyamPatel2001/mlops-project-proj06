@@ -1,0 +1,18 @@
+mlflow:
+  tracking_uri: "http://129.114.26.151:8000"
+  experiment_name: "layer2-evaluation"
+
+data:
+  train_csv: "../../data/processed/train.csv"   # 9-column schema, already preprocessed
+
+layer1:
+  model_uri: "runs:/<RUN_ID>/model"             # replace with your fastText MLflow run URI
+  model_version: "fasttext-v1"
+
+layer2:
+  model_name: "sentence-transformers/all-mpnet-base-v2"
+  max_length: 128
+  k: 5
+  similarity_threshold: 0.85
+  min_history: 10
+  store_path: "artifacts/user_store.pkl"        # relative to model_pipeline/layer2/
