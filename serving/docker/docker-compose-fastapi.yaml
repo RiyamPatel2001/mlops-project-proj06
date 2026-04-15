@@ -13,7 +13,7 @@ services:
       MODEL_BACKEND: native
       # Tune with: UVICORN_WORKERS=<N> docker compose ... up -d
       UVICORN_WORKERS: 1
-      # FastText .bin/.ftz under this directory (see fastapi_serving/app.py load_fasttext)
+      # FastText .bin/.ftz under this directory (see serving/app/app.py load_fasttext)
       MODEL_PATH: /app/models/fasttext
       LABEL_MAP_PATH: /app/models/fasttext/label_map.json
       MODEL_VERSION: v1
