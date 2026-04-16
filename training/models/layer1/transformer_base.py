@@ -94,16 +94,21 @@ class TransformerClassifier:
                 outputs = self.model(**enc, output_hidden_states=(self.pooling == "mean"))
 
                 if self.pooling == "mean":
-                    # Use last hidden state with mean pooling, then project
-                    # through the model's classifier head manually.
-                    # Note: this calls self.model.classifier(pooled) directly,
-                    # which is correct for MPNet's AutoModelForSequenceClassification
-                    # (single linear head). DistilBERT has an additional pre_classifier
-                    # layer — but since only mpnet_finetune.py passes pooling="mean",
-                    # this branch is never reached for DistilBERT.
+                    # Mean-pool the last hidden state, then run through the
+                    # classifier head's layers manually. We cannot call
+                    # self.model.classifier(pooled) directly because HF
+                    # classifier heads (e.g. MPNetClassificationHead) expect
+                    # the full [batch, seq_len, hidden] sequence tensor and
+                    # extract the CLS token themselves — passing a pre-pooled
+                    # [batch, hidden] tensor corrupts the projection.
                     last_hidden = outputs.hidden_states[-1]
                     pooled = self._mean_pool(last_hidden, enc["attention_mask"])
-                    logits = self.model.classifier(pooled)
+                    head = self.model.classifier
+                    x = head.dropout(pooled)
+                    x = head.dense(x)
+                    x = torch.tanh(x)
+                    x = head.dropout(x)
+                    logits = head.out_proj(x)
                 else:
                     logits = outputs.logits
 
@@ -139,10 +144,11 @@ def train_transformer(
                             e.g. "sentence-transformers/all-MiniLM-L6-v2"
         model_config_key: key in config for hyperparams
                             e.g. "minilm" or "distilbert"
-        pooling:          "cls"  — use CLS token logits (default, DistilBERT/MiniLM)
-                          "mean" — mean-pool last hidden state before classifier head
-                                   (required for all-mpnet-base-v2 which was pretrained
-                                   with mean pooling; CLS works but underperforms)
+        pooling:          "cls"  — use outputs.logits directly (default, all models)
+                          "mean" — mean-pool last hidden state, then apply the
+                                   classifier head's layers (dense→tanh→out_proj)
+                                   manually. Only valid when the head exposes those
+                                   named layers (dropout, dense, out_proj).
 
     Returns:
         (None, TransformerClassifier) — None in the vectorizer slot;
