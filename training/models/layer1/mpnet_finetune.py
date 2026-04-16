@@ -4,10 +4,11 @@ models/mpnet_finetune.py
 Fine-tunes sentence-transformers/all-mpnet-base-v2 for transaction
 categorization. All training logic lives in transformer_base.py.
 
-Difference from MiniLM/DistilBERT: uses mean pooling over all token
-embeddings (with attention-mask weighting) instead of the CLS token.
-all-mpnet was pretrained with mean pooling — using CLS works but leaves
-generalization performance on the table.
+Uses CLS-token pooling, consistent with the fine-tuning objective.
+AutoModelForSequenceClassification trains through MPNetClassificationHead
+which always extracts the CLS token — using mean pooling only at inference
+would create a train/inference mismatch and is architecturally incompatible
+with MPNetClassificationHead (which expects the full sequence tensor).
 
 Config keys read from config["mpnet"]:
     learning_rate, num_epochs, batch_size, warmup_steps, max_length
@@ -34,5 +35,5 @@ def train(
         config=config,
         hf_model_name=HF_MODEL_NAME,
         model_config_key="mpnet",
-        pooling="mean",          # all-mpnet requires mean pooling
+        pooling="cls",           # consistent with AutoModelForSequenceClassification training
     )
