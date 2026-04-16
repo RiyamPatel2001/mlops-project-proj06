@@ -86,6 +86,7 @@ class Predictor:
         if not store_module.has_sufficient_history(user_id, self.min_history):
             result = {
                 "transaction_id": transaction_id,
+                "user_id": user_id,
                 "prediction_category": l1_category,
                 "confidence": l1_confidence,
                 "model_version": self.model_version,
@@ -108,6 +109,7 @@ class Predictor:
         if threshold_exceeded:
             result = {
                 "transaction_id": transaction_id,
+                "user_id": user_id,
                 "prediction_category": l2_category,
                 "confidence": l2_confidence,
                 "model_version": self.model_version,
@@ -116,6 +118,7 @@ class Predictor:
         else:
             result = {
                 "transaction_id": transaction_id,
+                "user_id": user_id,
                 "prediction_category": l1_category,
                 "confidence": l1_confidence,
                 "model_version": self.model_version,

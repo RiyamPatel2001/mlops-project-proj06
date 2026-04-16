@@ -17,7 +17,7 @@ model: mpnet
 # Paths are relative to the training/ directory (where train.py lives).
 # In Docker (WORKDIR=/app/training), data is volume-mounted at /app/data.
 data:
-  raw_path:      ../data/raw/train.csv
+  raw_path:      "https://chi.tacc.chameleoncloud.org:7480/swift/v1/AUTH_d3c6e101843a4ba79e665ebf59b521a2/sr7714-data-proj06/train.csv"
   processed_dir: ../data/processed/
 
 # ── Split config ──────────────────────────────────────────────
