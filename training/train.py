@@ -23,6 +23,7 @@ What it does (in order):
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -102,6 +103,15 @@ _PARAM_ALIASES = {
     "lr":    "learning_rate",   # fasttext -> canonical
     "epoch": "num_epochs",      # fasttext -> canonical
 }
+
+
+def get_git_sha() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
+        ).decode().strip()
+    except Exception:
+        return "unknown"
 
 
 def log_config_params(cfg: dict) -> None:
@@ -247,6 +257,9 @@ def main() -> None:
 
     # 4. Start run — named after the model for readable MLflow UI
     with mlflow.start_run(run_name=cfg["model"]):
+
+        # Tag the run with the git SHA so every run is traceable to a commit
+        mlflow.set_tag("git_sha", get_git_sha())
 
         # 5. Log all config params up front
         log_config_params(cfg)
