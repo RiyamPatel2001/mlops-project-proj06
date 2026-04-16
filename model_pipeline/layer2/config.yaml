@@ -1,5 +1,5 @@
 mlflow:
-  tracking_uri: "http://129.114.26.151:8000"
+  tracking_uri: "http://129.114.26.157:30500 "
   experiment_name: "layer2-evaluation"
 
 data:

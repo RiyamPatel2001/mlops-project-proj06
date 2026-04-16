@@ -1,7 +1,7 @@
 """
 sweep.py
 ────────
-Runs a hyperparameter sweep over transformer models (minilm, distilbert)
+Runs a hyperparameter sweep over transformer models (minilm, distilbert, mpnet)
 by calling train.py once per config combination.
 
 Each run gets its own config.yaml written to a temp file — no manual
@@ -9,11 +9,11 @@ editing required. All runs land in the same MLflow experiment so you can
 compare them directly in the UI.
 
 Usage:
-    python3 sweep.py                          # sweeps both models
+    python3 sweep.py                          # sweeps all models
     python3 sweep.py --model minilm           # one model only
     python3 sweep.py --dry-run                # print configs, don't train
 
-Sweep grid (6 runs total across both models):
+Sweep grid (9 runs total across all three models):
     learning_rate : 2e-5, 3e-5, 5e-5
     num_epochs    : 3  (fixed — change EPOCHS below to add 2-epoch runs)
 
