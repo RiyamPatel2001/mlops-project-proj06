@@ -96,14 +96,30 @@ def setup_mlflow(cfg: dict) -> None:
     cfg["mlflow"]["tracking_uri"] = uri
 
 
+# Maps model-specific param names to canonical top-level names so that
+# runs from different models align in the MLflow comparison table.
+_PARAM_ALIASES = {
+    "lr":    "learning_rate",   # fasttext -> canonical
+    "epoch": "num_epochs",      # fasttext -> canonical
+}
+
+
 def log_config_params(cfg: dict) -> None:
-    """Flatten config to MLflow params. Nested dicts become 'section.key'."""
+    """
+    Log config to MLflow with normalized param names.
+
+    Top-level scalars (model, val_frac, random_state) are logged as-is.
+    Only the active model's hyperparameters are logged — remapped to canonical
+    names so they align across runs in the MLflow comparison table instead of
+    producing sparse per-model columns.
+    """
     for key, value in cfg.items():
-        if isinstance(value, dict):
-            for subkey, subvalue in value.items():
-                mlflow.log_param(f"{key}.{subkey}", subvalue)
-        else:
+        if not isinstance(value, dict):
             mlflow.log_param(key, value)
+
+    model_params = cfg.get(cfg["model"], {})
+    for key, value in model_params.items():
+        mlflow.log_param(_PARAM_ALIASES.get(key, key), value)
 
 
 # ── 6. Preprocessing ──────────────────────────────────────────────────────────
