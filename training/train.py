@@ -106,6 +106,10 @@ _PARAM_ALIASES = {
 
 
 def get_git_sha() -> str:
+    # Docker containers don't have .git (build context is training/ only).
+    # Callers should pass GIT_SHA=$(git rev-parse HEAD) via -e at docker run time.
+    if sha := os.environ.get("GIT_SHA", "").strip():
+        return sha
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
