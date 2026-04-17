@@ -44,7 +44,7 @@ import evaluate as eval_module
 # Model registry — add new candidates here as you build them
 MODEL_REGISTRY = {
     "tfidf_logreg": "models.layer1.tfidf_logreg",
-    "fasttext":     "models.layer1.fasttext_model",
+    "fasttext":     "models.layer1.fasttext",
     "minilm":       "models.layer1.minilm_finetune",
     "distilbert":   "models.layer1.distilbert_finetune",
     "mpnet":        "models.layer1.mpnet_finetune",
