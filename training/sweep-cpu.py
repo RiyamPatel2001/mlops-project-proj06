@@ -26,7 +26,7 @@ import yaml
 
 # ── Sweep grids ───────────────────────────────────────────────────────────────
 
-FASTTEXT_LRS = [0.5, 2.0]
+FASTTEXT_LRS = [0.5, 1.0]
 TFIDF_CS     = [1.0, 10.0]
 
 BASE_CONFIG_PATH = "config.yaml"
