@@ -24,6 +24,7 @@ COPY . .
 #     -v $(pwd)/../data:/app/data \
 #     -v $(pwd)/models/layer1/artifacts:/app/training/models/layer1/artifacts \
 #     -e MLFLOW_TRACKING_URI=http://<chameleon-ip>:8000 \
+#     -e GIT_SHA=$(git rev-parse HEAD) \
 #     transaction-categorizer-training
 #
 # Windows (PowerShell):
@@ -31,6 +32,7 @@ COPY . .
 #     -v ${PWD}\..\data:/app/data \
 #     -v ${PWD}\models\layer1\artifacts:/app/training/models/layer1/artifacts \
 #     -e MLFLOW_TRACKING_URI=http://<chameleon-ip>:8000 \
+#     -e GIT_SHA=$(git rev-parse HEAD) \
 #     transaction-categorizer-training
 
 ENTRYPOINT ["python", "train.py", "--config", "config.yaml"]
