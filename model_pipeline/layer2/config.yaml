@@ -3,10 +3,10 @@ mlflow:
   experiment_name: "layer2-evaluation"
 
 data:
-  train_csv: "../../data/processed/train.csv"   # 9-column schema, already preprocessed
+  train_csv: "http://10.43.4.193:9000/data/processed/train.csv"   # 9-column schema, already preprocessed
 
 layer1:
-  model_uri: "runs:/<RUN_ID>/model"             # replace with your fastText MLflow run URI
+  model_uri: "runs:/27d6660d579c4bc2903692485cb1569e/fasttext.bin"             # replace with your fastText MLflow run URI
   model_version: "fasttext-v1"
 
 layer2:

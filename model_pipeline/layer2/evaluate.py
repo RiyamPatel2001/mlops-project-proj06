@@ -41,7 +41,7 @@ class Predictor:
         self.store_path = l2["store_path"]
 
         # --- Load Layer 1 (fastText) ---
-        mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"])
+        mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"].strip())
         layer1_model_uri = cfg["layer1"]["model_uri"]
         local_path = mlflow.artifacts.download_artifacts(layer1_model_uri)
         # fastText artifact is a .bin file inside the downloaded directory

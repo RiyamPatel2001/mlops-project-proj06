@@ -113,4 +113,20 @@ def evaluate_and_log(
     print(f"{'─'*55}")
     print(report_str)
 
+    # ── 9. Quality gate ───────────────────────────────────────────────────────
+    gate_cfg = config.get("quality_gate", {})
+    min_weighted = gate_cfg.get("weighted_f1", 0.75)
+    min_macro    = gate_cfg.get("macro_f1",    0.55)
+
+    passed = weighted_f1 >= min_weighted and macro_f1 >= min_macro
+    status = "passed" if passed else "failed"
+    mlflow.set_tag("quality_gate", status)
+    print(
+        f"[quality_gate] {status}  "
+        f"(weighted_f1={weighted_f1:.4f}>={min_weighted}, "
+        f"macro_f1={macro_f1:.4f}>={min_macro})"
+    )
+    if not passed:
+        raise SystemExit(1)
+
     return {"weighted_f1": weighted_f1, "macro_f1": macro_f1}
