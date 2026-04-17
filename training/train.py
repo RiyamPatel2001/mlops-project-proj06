@@ -188,7 +188,40 @@ def run_preprocessing(cfg: dict) -> tuple[pd.Series, pd.Series, np.ndarray, np.n
     y_train = df_train["label"].values
     y_val   = df_val["label"].values
 
+    upload_processed_to_minio(cfg, processed_dir)
+
     return X_train, X_val, y_train, y_val, label_classes
+
+
+# ── 6b. Upload processed splits to MinIO ─────────────────────────────────────
+
+def upload_processed_to_minio(cfg: dict, processed_dir: str) -> None:
+    from minio import Minio
+
+    minio_cfg = cfg.get("minio", {})
+    if not minio_cfg:
+        print("[minio] No minio config found — skipping upload.")
+        return
+
+    endpoint = minio_cfg["endpoint"].replace("http://", "").replace("https://", "")
+    secure   = minio_cfg["endpoint"].startswith("https://")
+    client   = Minio(
+        endpoint,
+        access_key=os.environ.get("MINIO_ACCESS_KEY", "minioadmin"),
+        secret_key=os.environ.get("MINIO_SECRET_KEY", "minioadmin"),
+        secure=secure,
+    )
+
+    bucket = minio_cfg["bucket"]
+    prefix = cfg["data"].get("retraining_prefix", "data/retraining/").rstrip("/")
+
+    for filename in ("train.csv", "val.csv", "label_classes.json"):
+        local_path = os.path.join(processed_dir, filename)
+        if not os.path.exists(local_path):
+            continue
+        object_name = f"{prefix}/{filename}"
+        client.fput_object(bucket, object_name, local_path)
+        print(f"[minio] Uploaded {filename} → {bucket}/{object_name}")
 
 
 # ── 7. Model dispatch ─────────────────────────────────────────────────────────

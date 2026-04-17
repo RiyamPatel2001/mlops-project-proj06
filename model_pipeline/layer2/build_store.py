@@ -84,17 +84,13 @@ def main():
     cfg = load_config()
     l2 = cfg["layer2"]
 
-    data_dir = cfg.get("data_dir", ".")
     output_path = l2["store_path"]
     os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
 
-    print("Loading CSVs...")
-    df_2022 = load_csv(os.path.join(data_dir, cfg["data"]["transactions_2022"]))
-    df_2023_full = load_csv(os.path.join(data_dir, cfg["data"]["transactions_2023"]))
-    df_2023 = first_n_percent_per_user(df_2023_full, pct=0.70)
-
-    df = pd.concat([df_2022, df_2023], ignore_index=True)
-    print(f"Total training rows: {len(df)} (2022: {len(df_2022)}, 2023 first 70%: {len(df_2023)})")
+    train_csv = cfg["data"]["train_csv"]
+    print(f"Loading data from {train_csv} ...")
+    df = load_csv(train_csv)
+    print(f"Total training rows: {len(df)}")
 
     print(f"Loading embedder: {l2['model_name']}")
     embedder = Embedder(model_name=l2["model_name"], max_length=l2.get("max_length", 128))
@@ -107,8 +103,8 @@ def main():
         pickle.dump(store, f)
     print(f"Saved store to {output_path}")
 
-    mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"])
-    mlflow.set_experiment(cfg["mlflow"].get("layer2_experiment", "layer2-evaluation"))
+    mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"].strip())
+    mlflow.set_experiment(cfg["mlflow"]["experiment_name"])
 
     with mlflow.start_run(run_name="build_store"):
         mlflow.log_param("layer2.model_name", l2["model_name"])
