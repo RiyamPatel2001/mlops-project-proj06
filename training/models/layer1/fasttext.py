@@ -109,6 +109,14 @@ def train(
     """
     model_cfg = config["fasttext"]
 
+    # fasttext SGD diverges (NaN) at lr >= ~1.2 on typical transaction datasets
+    if model_cfg["lr"] > 1.1:
+        raise ValueError(
+            f"fasttext lr={model_cfg['lr']} exceeds safe ceiling of 1.1 — "
+            f"values above ~1.2 cause gradient explosion (RuntimeError: Encountered NaN). "
+            f"Use lr <= 1.0."
+        )
+
     # Reconstruct label_classes from the processed dir so the label→idx
     # mapping is consistent with what LabelEncoder produced in preprocess.py
     import json
