@@ -21,11 +21,6 @@ data:
   processed_dir: ../data/processed/
   retraining_prefix: "data/retraining/"
 
-# ── MinIO ─────────────────────────────────────────────────────────────────────
-minio:
-  endpoint: "http://10.43.4.193:9000"
-  bucket: "data"
-
 # ── Split config ──────────────────────────────────────────────
 val_frac:     0.2   # fraction of users held out for validation
 random_state: 42    # controls user split + any model randomness
@@ -37,6 +32,11 @@ model_output_dir: models/layer1/artifacts/
 mlflow:
   tracking_uri:    http://129.114.26.157:30500    # swap for Chameleon VM IP at runtime
   experiment_name: layer1-categorizer
+
+# ── MinIO (for storing data) ─────────────────────────────
+minio:
+  endpoint: "http://10.43.4.193:9000"
+  bucket: "data"
 
 # ── Model-specific hyperparameters ───────────────────────────
 # Only the section matching "model" above is used by train.py.
