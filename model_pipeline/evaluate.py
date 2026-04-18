@@ -1,5 +1,5 @@
 """
-model_pipeline/layer2/evaluate.py
+model_pipeline/evaluate.py
 
 Batch evaluation of the full Layer 1 + Layer 2 pipeline.
 
@@ -12,9 +12,9 @@ Metrics logged to MLflow:
   - per-source weighted F1  (layer1_weighted_f1, layer2_weighted_f1)
   - classification report + per-row results CSV as artifacts
 
-Usage:
-    python -m model_pipeline.layer2.evaluate
-    python -m model_pipeline.layer2.evaluate --config config.yaml
+Usage (from project root):
+    python -m model_pipeline.evaluate
+    python -m model_pipeline.evaluate --config model_pipeline/layer2/config.yaml
 """
 
 import argparse
@@ -25,7 +25,6 @@ import tempfile
 
 import fasttext
 import mlflow
-import numpy as np
 import pandas as pd
 import yaml
 from sklearn.metrics import classification_report, f1_score
@@ -37,7 +36,7 @@ from model_pipeline.layer2.matcher import get_top_k, majority_vote
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="config.yaml")
+    parser.add_argument("--config", default="model_pipeline/layer2/config.yaml")
     return parser.parse_args()
 
 
@@ -173,11 +172,11 @@ def main() -> None:
     mlflow.set_experiment(cfg["mlflow"]["experiment_name"])
 
     with mlflow.start_run(run_name="layer2-eval"):
-        mlflow.log_metric("weighted_f1",       weighted_f1)
-        mlflow.log_metric("macro_f1",          macro_f1)
+        mlflow.log_metric("weighted_f1",        weighted_f1)
+        mlflow.log_metric("macro_f1",           macro_f1)
         mlflow.log_metric("layer2_routing_pct", round(pct_l2, 2))
-        mlflow.log_metric("n_layer1_routed",   n_l1)
-        mlflow.log_metric("n_layer2_routed",   n_l2)
+        mlflow.log_metric("n_layer1_routed",    n_l1)
+        mlflow.log_metric("n_layer2_routed",    n_l2)
         if "layer1_weighted_f1" in report_dict:
             mlflow.log_metric("layer1_weighted_f1", report_dict["layer1_weighted_f1"])
         if "layer2_weighted_f1" in report_dict:

@@ -28,7 +28,10 @@ from model_pipeline.layer2.embedder import Embedder
 EXTRA_COLS = ["newid", "diary_newid", "survey_source"]
 
 
-def load_config(path: str = "config.yaml") -> dict:
+_DEFAULT_CONFIG = os.path.join(os.path.dirname(__file__), "config.yaml")
+
+
+def load_config(path: str = _DEFAULT_CONFIG) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
 
@@ -90,7 +93,11 @@ def main():
     train_csv = cfg["data"]["train_csv"]
     print(f"Loading data from {train_csv} ...")
     df = load_csv(train_csv)
-    print(f"Total training rows: {len(df)}")
+    print(f"Loaded {len(df):,} rows")
+
+    # Use first 70% of each user's history so the last 30% stays unseen for evaluation
+    df = first_n_percent_per_user(df, pct=0.70)
+    print(f"Building store from {len(df):,} rows (first 70% per user by date)")
 
     print(f"Loading embedder: {l2['model_name']}")
     embedder = Embedder(model_name=l2["model_name"], max_length=l2.get("max_length", 128))
@@ -109,7 +116,7 @@ def main():
     with mlflow.start_run(run_name="build_store"):
         mlflow.log_param("layer2.model_name", l2["model_name"])
         mlflow.log_param("layer2.num_users", len(store))
-        mlflow.log_param("layer2.total_transactions", len(df))
+        mlflow.log_param("layer2.store_transactions", len(df))
         mlflow.log_artifact(output_path)
         print("Logged artifact to MLflow.")
 

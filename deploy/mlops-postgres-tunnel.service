@@ -1,0 +1,15 @@
+[Unit]
+Description=Persistent tunnel from serving VM to cluster PostgreSQL
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cc
+Group=cc
+ExecStart=/home/cc/deploy/mlops-postgres-tunnel.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
