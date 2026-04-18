@@ -21,7 +21,6 @@ Usage:
 """
 
 import csv
-import json
 import time
 import random
 import argparse
@@ -36,23 +35,27 @@ P_USER_CONFIRMS_CORRECT = 0.40
 P_USER_FILLS_BLANK = 0.85
 
 
-def dollars_to_cents(amount_dollars):
-    return -int(round(float(amount_dollars) * 100))
+def expense_amount_dollars(amount_dollars):
+    return -abs(float(amount_dollars))
 
 
 def call_classify(serving_url, transaction):
     payload = {
-        "account":     transaction["user_id"],
-        "date":        transaction["date"],
-        "amount":      dollars_to_cents(transaction["amount"]),
-        "payee_name":  transaction["payee"],
-        "imported_id": transaction["transaction_id"],
+        "transaction_id": transaction["transaction_id"],
+        "user_id":        transaction["user_id"],
+        "payee":          transaction["payee"],
+        "amount":         expense_amount_dollars(transaction["amount"]),
+        "date":           transaction["date"],
     }
     try:
         resp = requests.post(f"{serving_url}/classify", json=payload, timeout=5)
         if resp.status_code == 200:
             data = resp.json()
-            return data.get("category"), data.get("confidence", 0.0), data.get("source", "layer1")
+            return (
+                data.get("prediction_category"),
+                data.get("confidence"),
+                data.get("source", "layer1"),
+            )
         return None, 0.0, "layer1"
     except requests.exceptions.ConnectionError:
         # Serving not up — mock response for testing
@@ -110,7 +113,7 @@ def simulate_user_interaction(transaction, predicted_category, confidence, sourc
         "transaction_id":      transaction["transaction_id"],
         "user_id":             transaction["user_id"],
         "payee":               transaction["payee"],
-        "amount":              dollars_to_cents(transaction["amount"]),
+        "amount":              -int(round(float(transaction["amount"]) * 100)),
         "date":                transaction["date"],
         "original_prediction": predicted_category,
         "original_confidence": confidence,
@@ -157,7 +160,7 @@ def main():
         if predicted is None:
             predicted, confidence, source = txn["category"], 0.5, "layer1"
 
-        if confidence >= 0.6:
+        if confidence is not None and confidence >= 0.6:
             stats["auto_filled"] += 1
         if predicted == txn["category"]:
             stats["correct_preds"] += 1

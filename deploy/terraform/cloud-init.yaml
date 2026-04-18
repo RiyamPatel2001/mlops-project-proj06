@@ -1,0 +1,58 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - gnupg
+
+runcmd:
+  # ── Install Docker ──────────────────────────────────────────────────────────
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  - chmod a+r /etc/apt/keyrings/docker.gpg
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker cc
+
+  # ── Add swap so the custom Actual build fits on m1.large ───────────────────
+  - |
+    if ! swapon --show | grep -q .; then
+      fallocate -l 4G /swapfile
+      chmod 600 /swapfile
+      mkswap /swapfile
+      swapon /swapfile
+      grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    fi
+
+  # ── Clone project onto the VM and write environment file ───────────────────
+  - mkdir -p /home/cc
+  - |
+    if [ ! -d /home/cc/mlops-serving/.git ]; then
+      git clone --depth 1 ${repo_url} /home/cc/mlops-serving
+    fi
+  - chown -R cc:cc /home/cc/mlops-serving
+  - su - cc -c "cd /home/cc/mlops-serving && git fetch --all --tags && git checkout ${repo_ref}"
+  - |
+    cat > /home/cc/mlops-serving/deploy/.env <<'ENVEOF'
+    POSTGRES_DSN=${postgres_dsn}
+    MLFLOW_TRACKING_URI=${mlflow_tracking_uri}
+    MLFLOW_MODEL_URI=${mlflow_model_uri}
+    EMBEDDING_SERVICE_URL=${embedding_service_url}
+    LAYER1_MODEL_KIND=${layer1_model_kind}
+    LAYER1_MLFLOW_RUN_ID=${layer1_mlflow_run_id}
+    LAYER1_MLFLOW_ARTIFACT_PATH=${layer1_mlflow_artifact_path}
+    ACTUAL_BUILD_NODE_MEMORY_MB=${actual_build_node_memory_mb}
+    DOCKER_PLATFORM=${docker_platform}
+    ENVEOF
+  - chown cc:cc /home/cc/mlops-serving/deploy/.env
+  - chmod 600 /home/cc/mlops-serving/deploy/.env
+
+  # ── Build and start ─────────────────────────────────────────────────────────
+  - su - cc -c "cd /home/cc/mlops-serving/deploy && ./setup.sh"
