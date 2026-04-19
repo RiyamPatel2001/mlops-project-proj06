@@ -60,6 +60,105 @@ kubectl get pods -A | head -20
 # ── Add kubectl to PATH for future SSH sessions ───────────────────────────────
 echo 'export KUBECONFIG=~/.kube/config' >> ~/.bashrc
 
+# ── Step 6: Install Docker and move its storage to the Cinder volume ──────────
+log "Step 6/9: Installing Docker..."
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker cc
+
+log "Step 6/9: Waiting for Cinder volume (/dev/vdb)..."
+for i in $(seq 1 12); do
+  [ -b /dev/vdb ] && log "  /dev/vdb is available" && break
+  echo "  [$i/12] Waiting for /dev/vdb to appear..."
+  sleep 5
+done
+[ ! -b /dev/vdb ] && echo "WARNING: /dev/vdb not found — Docker will use the boot disk (risk of disk pressure)"
+
+if [ -b /dev/vdb ]; then
+  log "Step 6/9: Formatting and mounting Cinder volume for Docker storage..."
+  sudo mkfs.ext4 /dev/vdb
+  sudo mkdir -p /mnt/docker-storage
+  sudo mount /dev/vdb /mnt/docker-storage
+  echo '/dev/vdb /mnt/docker-storage ext4 defaults 0 2' | sudo tee -a /etc/fstab
+
+  log "Step 6/9: Moving Docker data-root to Cinder volume..."
+  sudo systemctl stop docker docker.socket 2>/dev/null || true
+  sudo mkdir -p /etc/docker
+  echo '{"data-root": "/mnt/docker-storage/docker"}' | sudo tee /etc/docker/daemon.json
+
+  # Move containerd image store (where Docker actually stores layer blobs)
+  if [ -d /var/lib/containerd ]; then
+    sudo rsync -aH /var/lib/containerd/ /mnt/docker-storage/containerd/
+    sudo rm -rf /var/lib/containerd
+    sudo ln -s /mnt/docker-storage/containerd /var/lib/containerd
+  fi
+
+  sudo systemctl start docker
+  log "Docker running with data-root on /mnt/docker-storage"
+fi
+
+# ── Step 7: Clone project repo ────────────────────────────────────────────────
+log "Step 7/9: Cloning project repo (refactor-project branch)..."
+if [ ! -d /home/cc/mlops-project-proj06 ]; then
+  git clone -b refactor-project \
+    https://github.com/RiyamPatel2001/mlops-project-proj06.git \
+    /home/cc/mlops-project-proj06
+else
+  cd /home/cc/mlops-project-proj06 && git pull
+fi
+
+# ── Step 8: Create K8s namespace and credentials ──────────────────────────────
+log "Step 8/9: Creating namespace and secrets..."
+kubectl apply -f /home/cc/mlops-project-proj06/devops/k8s/namespace.yaml
+
+# MinIO credentials
+kubectl create secret generic minio-credentials \
+  --namespace=mlops \
+  --from-literal=MINIO_ROOT_USER=minioadmin \
+  --from-literal=MINIO_ROOT_PASSWORD=minioadmin123 \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Postgres credentials
+kubectl create secret generic postgres-credentials \
+  --namespace=mlops \
+  --from-literal=POSTGRES_USER=mlops_user \
+  --from-literal=POSTGRES_PASSWORD=mlops_pass \
+  --from-literal=POSTGRES_DB=mlops \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# ── Step 9: Apply all K8s manifests ───────────────────────────────────────────
+log "Step 9/9: Applying K8s manifests..."
+K8S=/home/cc/mlops-project-proj06/devops/k8s
+
+# Core storage
+kubectl apply -f $K8S/postgres/pvc.yaml
+kubectl apply -f $K8S/minio/pvc.yaml
+kubectl apply -f $K8S/mlflow/pvc.yaml
+kubectl apply -f $K8S/serving/pvc.yaml
+
+# Core services
+kubectl apply -f $K8S/postgres/deployment.yaml
+kubectl apply -f $K8S/postgres/service.yaml
+kubectl apply -f $K8S/minio/deployment.yaml
+kubectl apply -f $K8S/minio/service.yaml
+kubectl apply -f $K8S/mlflow/deployment.yaml
+kubectl apply -f $K8S/mlflow/service.yaml
+
+# ActualBudget (custom build) + nginx proxy for COOP/COEP headers
+kubectl apply -f $K8S/actualbudget/pvc.yaml
+kubectl apply -f $K8S/actualbudget/deployment.yaml
+kubectl apply -f $K8S/actualbudget/service.yaml
+kubectl apply -f $K8S/actualbudget-proxy/configmap.yaml
+kubectl apply -f $K8S/actualbudget-proxy/deployment.yaml
+kubectl apply -f $K8S/actualbudget-proxy/service.yaml
+
+# Transaction classifier (ML serving)
+kubectl apply -f $K8S/serving/deployment.yaml
+kubectl apply -f $K8S/serving/service.yaml
+
+log "All manifests applied. Waiting 30s for pods to start..."
+sleep 30
+kubectl get pods -n mlops
+
 # ── Done ───────────────────────────────────────────────────────────────────────
 echo ""
 echo "============================================="

@@ -1,8 +1,9 @@
 # =============================================================================
-# ActualBudget Service — NodePort
+# ActualBudget Service — ClusterIP (internal only)
 # =============================================================================
-# Exposes ActualBudget web UI on NodePort 30506.
-# Access: http://<CHAMELEON-FLOATING-IP>:30506
+# ActualBudget is NOT exposed directly. External traffic goes through the
+# actualbudget-proxy (nginx) which adds COOP/COEP headers for SharedArrayBuffer.
+# Access: http://<CHAMELEON-FLOATING-IP>:30506  (via actualbudget-proxy)
 # =============================================================================
 apiVersion: v1
 kind: Service
@@ -13,7 +14,7 @@ metadata:
     app: actualbudget
     project: proj06
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: actualbudget
   ports:
@@ -21,4 +22,3 @@ spec:
       protocol: TCP
       port: 5006
       targetPort: 5006
-      nodePort: 30506

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: actualbudget-proxy-config
+  namespace: mlops
+data:
+  nginx.conf: |
+    events {}
+    http {
+      server {
+        listen 80;
+        location / {
+          proxy_pass http://actualbudget.mlops.svc.cluster.local:5006;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection "upgrade";
+          add_header Cross-Origin-Opener-Policy "same-origin" always;
+          add_header Cross-Origin-Embedder-Policy "require-corp" always;
+        }
+      }
+    }
