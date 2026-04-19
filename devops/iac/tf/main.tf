@@ -59,6 +59,36 @@ resource "openstack_networking_secgroup_rule_v2" "serving_rule" {
   security_group_id = openstack_networking_secgroup_v2.serving.id
 }
 
+resource "openstack_networking_secgroup_v2" "minio_console" {
+  name        = "allow-30901-${var.suffix}"
+  description = "MinIO Console NodePort"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "minio_console_rule" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30901
+  port_range_max    = 30901
+  remote_ip_prefix  = "0.0.0.0/0"
+  security_group_id = openstack_networking_secgroup_v2.minio_console.id
+}
+
+resource "openstack_networking_secgroup_v2" "minio_api" {
+  name        = "allow-30900-${var.suffix}"
+  description = "MinIO API NodePort"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "minio_api_rule" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30900
+  port_range_max    = 30900
+  remote_ip_prefix  = "0.0.0.0/0"
+  security_group_id = openstack_networking_secgroup_v2.minio_api.id
+}
+
 # Private network (no port security — all inter-node traffic allowed)
 resource "openstack_networking_network_v2" "private_net" {
   name                  = "private-net-mlops-${var.suffix}"
@@ -94,6 +124,8 @@ resource "openstack_networking_port_v2" "sharednet1_ports" {
     openstack_networking_secgroup_v2.mlflow.id,
     openstack_networking_secgroup_v2.actualbudget.id,
     openstack_networking_secgroup_v2.serving.id,
+    openstack_networking_secgroup_v2.minio_console.id,
+    openstack_networking_secgroup_v2.minio_api.id,
   ]
 }
 
@@ -124,4 +156,16 @@ resource "openstack_networking_floatingip_v2" "floating_ip" {
   pool        = "public"
   description = "MLOps proj06 floating IP"
   port_id     = openstack_networking_port_v2.sharednet1_ports["node1"].id
+}
+
+# Extra block volume for Docker image storage on node1
+# Prevents disk pressure from large training images filling the boot disk
+resource "openstack_blockstorage_volume_v3" "docker_storage" {
+  name = "proj06-docker-storage"
+  size = 50
+}
+
+resource "openstack_compute_volume_attach_v2" "docker_storage_attach" {
+  instance_id = openstack_compute_instance_v2.nodes["node1"].id
+  volume_id   = openstack_blockstorage_volume_v3.docker_storage.id
 }
