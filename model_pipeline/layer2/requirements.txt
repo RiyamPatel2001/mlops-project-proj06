@@ -1,0 +1,8 @@
+torch==2.2.*
+transformers==4.40.*
+fasttext-wheel==0.9.2
+mlflow==2.14.*
+numpy==1.26.*
+pandas==2.2.*
+PyYAML==6.0.*
+scikit-learn==1.5.*
