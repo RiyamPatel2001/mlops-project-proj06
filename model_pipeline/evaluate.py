@@ -66,16 +66,18 @@ def predict_batch(
     min_history: int,
 ) -> pd.DataFrame:
     """Run predictions on df_test without mutating the store."""
-    records = []
-    for row in df_test.itertuples(index=False):
-        payee   = row.payee
-        user_id = row.user_id
+    payees = df_test["payee"].tolist()
 
-        labels, probs = layer1_model.predict(payee, k=1)
+    print(f"  Embedding {len(payees):,} payees in batch ...")
+    embeddings = embedder.embed_batch(payees)
+
+    records = []
+    for i, row in enumerate(df_test.itertuples(index=False)):
+        labels, probs = layer1_model.predict(row.payee, k=1)
         l1_cat  = labels[0].replace("__label__", "")
         l1_conf = float(probs[0])
 
-        user_data = store.get(user_id)
+        user_data = store.get(row.user_id)
         if user_data is None or len(user_data["labels"]) < min_history:
             records.append({
                 "true_label": row.category, "pred_label": l1_cat,
@@ -83,8 +85,7 @@ def predict_batch(
             })
             continue
 
-        query_emb = embedder.embed(payee)
-        neighbors = get_top_k(query_emb, user_data, k)
+        neighbors = get_top_k(embeddings[i], user_data, k)
         l2_cat, l2_conf, exceeded = majority_vote(neighbors, threshold)
 
         if exceeded:
