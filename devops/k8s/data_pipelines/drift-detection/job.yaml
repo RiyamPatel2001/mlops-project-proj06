@@ -1,33 +1,33 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: data-generator
+  name: drift-detection
   namespace: mlops
   labels:
-    app: data-generator
+    app: drift-detection
     project: proj06
 spec:
   ttlSecondsAfterFinished: 300
   template:
     metadata:
       labels:
-        app: data-generator
+        app: drift-detection
         project: proj06
     spec:
       restartPolicy: Never
       containers:
-        - name: data-generator
-          image: ghcr.io/riyampatel2001/mlops-project-proj06/data-generator:latest
+        - name: drift-detection
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/drift-detection:latest
           resources:
             requests:
               cpu: "250m"
               memory: "256Mi"
             limits:
               cpu: "500m"
-              memory: "512Mi"
+              memory: "1Gi"
           env:
-            - name: SERVING_URL
-              value: "http://serving-service.mlops.svc.cluster.local:8000"
+            - name: FEEDBACK_URL
+              value: "http://serving-service.mlops.svc.cluster.local:8000/feedback/export"
             - name: MINIO_ENDPOINT
               value: "http://minio.mlops.svc.cluster.local:9000"
             - name: MINIO_ACCESS_KEY

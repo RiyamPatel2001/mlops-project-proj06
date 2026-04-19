@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: actualbudget-proxy
+  namespace: mlops
+  labels:
+    app: actualbudget-proxy
+    project: proj06
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: actualbudget-proxy
+  template:
+    metadata:
+      labels:
+        app: actualbudget-proxy
+        project: proj06
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: actualbudget-proxy-config

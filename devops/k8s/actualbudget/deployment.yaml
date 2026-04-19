@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
         - name: actualbudget
-          image: actualbudget/actual-server:latest
+          image: ghcr.io/jayrajpamnani/actual-custom:latest
           imagePullPolicy: Always
           ports:
             - name: http
