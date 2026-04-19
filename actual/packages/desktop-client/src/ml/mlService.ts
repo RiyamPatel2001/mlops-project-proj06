@@ -1,19 +1,29 @@
 /**
  * ML Serving Service client — calls the FastAPI prediction service.
  *
- * The serving URL is resolved from the environment variable
- * ACTUAL_ML_SERVING_URL or falls back to the default.
+ * The serving URL can be injected via `window.__ML_SERVING_URL__`. Otherwise,
+ * fall back to a sensible browser default. The deployed k8s app exposes
+ * ActualBudget on 30506 and the classifier on 30508.
  */
 
-const browserDefaultServingUrl =
-  typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:8000`
-    : 'http://localhost:8000';
+function resolveBrowserDefaultServingUrl() {
+  if (typeof window === 'undefined') {
+    return 'http://localhost:8000';
+  }
+
+  const { protocol, hostname, port } = window.location;
+
+  if (port === '30506') {
+    return `${protocol}//${hostname}:30508`;
+  }
+
+  return `${protocol}//${hostname}:8000`;
+}
 
 const ML_SERVING_URL =
   (typeof window !== 'undefined' &&
     (window as Record<string, unknown>).__ML_SERVING_URL__) ||
-  browserDefaultServingUrl;
+  resolveBrowserDefaultServingUrl();
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
