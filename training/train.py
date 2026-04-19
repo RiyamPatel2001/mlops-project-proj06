@@ -196,32 +196,39 @@ def run_preprocessing(cfg: dict) -> tuple[pd.Series, pd.Series, np.ndarray, np.n
 # ── 6b. Upload processed splits to MinIO ─────────────────────────────────────
 
 def upload_processed_to_minio(cfg: dict, processed_dir: str) -> None:
-    from minio import Minio
+    try:
+        from minio import Minio
+    except ImportError:
+        print("[minio] WARNING: minio package not installed — skipping upload.")
+        return
 
     minio_cfg = cfg.get("minio", {})
     if not minio_cfg:
         print("[minio] No minio config found — skipping upload.")
         return
 
-    endpoint = minio_cfg["endpoint"].replace("http://", "").replace("https://", "")
-    secure   = minio_cfg["endpoint"].startswith("https://")
-    client   = Minio(
-        endpoint,
-        access_key=os.environ.get("MINIO_ACCESS_KEY", "minioadmin"),
-        secret_key=os.environ.get("MINIO_SECRET_KEY", "minioadmin"),
-        secure=secure,
-    )
+    try:
+        endpoint = minio_cfg["endpoint"].replace("http://", "").replace("https://", "")
+        secure   = minio_cfg["endpoint"].startswith("https://")
+        client   = Minio(
+            endpoint,
+            access_key=os.environ.get("MINIO_ACCESS_KEY", minio_cfg.get("access_key", "minioadmin")),
+            secret_key=os.environ.get("MINIO_SECRET_KEY", minio_cfg.get("secret_key", "minioadmin")),
+            secure=secure,
+        )
 
-    bucket = minio_cfg["bucket"]
-    prefix = cfg["data"].get("retraining_prefix", "data/retraining/").rstrip("/")
+        bucket = minio_cfg["bucket"]
 
-    for filename in ("train.csv", "val.csv", "label_classes.json"):
-        local_path = os.path.join(processed_dir, filename)
-        if not os.path.exists(local_path):
-            continue
-        object_name = f"{prefix}/{filename}"
-        client.fput_object(bucket, object_name, local_path)
-        print(f"[minio] Uploaded {filename} → {bucket}/{object_name}")
+        for filename in ("train.csv", "val.csv", "label_classes.json"):
+            local_path = os.path.join(processed_dir, filename)
+            if not os.path.exists(local_path):
+                continue
+            object_name = f"data/processed/{filename}"
+            client.fput_object(bucket, object_name, local_path)
+            print(f"[minio] Uploaded {filename} → {bucket}/{object_name}")
+
+    except Exception as e:
+        print(f"[minio] WARNING: upload failed — {e}. Continuing without MinIO upload.")
 
 
 # ── 7. Model dispatch ─────────────────────────────────────────────────────────
