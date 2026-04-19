@@ -10,12 +10,14 @@ For a given user + payee string:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 from collections import Counter
 from typing import Optional
 
 import httpx
+import numpy as np
 
 from app import db
 from app.config import (
@@ -24,6 +26,7 @@ from app.config import (
     LAYER2_SIMILARITY_THRESHOLD,
     LAYER2_TOP_K,
 )
+from app.feature_computation import normalize_payee
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +41,46 @@ async def get_embedding(text: str) -> Optional[list[float]]:
             )
             resp.raise_for_status()
             data = resp.json()
-            return data.get("embedding") or data.get("vector")
+            embedding = data.get("embedding") or data.get("vector")
+            if embedding:
+                return embedding
     except Exception as exc:
-        logger.warning("Embedding service unavailable: %s", exc)
-        return None
+        logger.warning("Embedding service unavailable, using local fallback: %s", exc)
+
+    return _fallback_embedding(text)
+
+
+def _fallback_embedding(text: str, dims: int = 256) -> list[float]:
+    """Deterministic local embedding used when external service is unavailable."""
+    normalized = normalize_payee(text)
+    if not normalized:
+        return [0.0] * dims
+
+    vector = np.zeros(dims, dtype=np.float32)
+
+    tokens = normalized.split()
+    for token in tokens:
+        _accumulate_feature(vector, f"tok:{token}")
+
+    compact = normalized.replace(" ", "")
+    for size in (3, 4):
+        if len(compact) < size:
+            continue
+        for idx in range(len(compact) - size + 1):
+            _accumulate_feature(vector, f"ng:{compact[idx:idx + size]}")
+
+    norm = float(np.linalg.norm(vector))
+    if norm == 0:
+        return vector.tolist()
+    return (vector / norm).tolist()
+
+
+def _accumulate_feature(vector: np.ndarray, feature: str) -> None:
+    digest = hashlib.blake2b(feature.encode("utf-8"), digest_size=8).digest()
+    bucket = int.from_bytes(digest[:4], "big") % len(vector)
+    sign = 1.0 if digest[4] % 2 == 0 else -1.0
+    weight = 1.0 + (digest[5] / 255.0)
+    vector[bucket] += sign * weight
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
