@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+asyncpg
+httpx
+numpy
+pandas
+mlflow
+pydantic>=2.0
+torch
+transformers
