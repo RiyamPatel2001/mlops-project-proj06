@@ -105,8 +105,8 @@ def main() -> None:
     l2   = cfg["layer2"]
 
     # ── Data: mirror the same 70/30 split as build_store ──────────────────────
-    print(f"Loading {cfg['data']['train_csv']} ...")
-    df       = load_csv(cfg["data"]["train_csv"])
+    print(f"Loading data from MinIO ...")
+    df       = load_csv(cfg)
     df_store = first_n_percent_per_user(df, pct=0.70)
     df_test  = df[~df["transaction_id"].isin(df_store["transaction_id"])].copy()
     print(f"Split: {len(df_store):,} store rows  /  {len(df_test):,} test rows")

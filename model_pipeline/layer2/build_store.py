@@ -16,12 +16,14 @@ Usage:
     python -m model_pipeline.layer2.build_store
 """
 
+import io
 import os
 import pickle
 import yaml
 import numpy as np
 import pandas as pd
 import mlflow
+from minio import Minio
 
 from model_pipeline.layer2.embedder import Embedder
 
@@ -36,8 +38,25 @@ def load_config(path: str = _DEFAULT_CONFIG) -> dict:
         return yaml.safe_load(f)
 
 
-def load_csv(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
+def make_minio_client(cfg: dict) -> Minio:
+    endpoint = cfg["minio"]["endpoint"].replace("http://", "").replace("https://", "")
+    secure = cfg["minio"]["endpoint"].startswith("https://")
+    return Minio(
+        endpoint,
+        access_key=os.environ.get("MINIO_ACCESS_KEY", "minioadmin"),
+        secret_key=os.environ.get("MINIO_SECRET_KEY", "minioadmin"),
+        secure=secure,
+    )
+
+
+def load_csv(cfg: dict) -> pd.DataFrame:
+    client = make_minio_client(cfg)
+    bucket = cfg["minio"]["bucket"]
+    obj = cfg["minio"]["object"]
+    response = client.get_object(bucket, obj)
+    df = pd.read_csv(io.BytesIO(response.read()))
+    response.close()
+    response.release_conn()
     df.drop(columns=[c for c in EXTRA_COLS if c in df.columns], inplace=True)
     return df
 
@@ -90,9 +109,8 @@ def main():
     output_path = l2["store_path"]
     os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
 
-    train_csv = cfg["data"]["train_csv"]
-    print(f"Loading data from {train_csv} ...")
-    df = load_csv(train_csv)
+    print(f"Loading data from {cfg['minio']['endpoint']}/{cfg['minio']['bucket']}/{cfg['minio']['object']} ...")
+    df = load_csv(cfg)
     print(f"Loaded {len(df):,} rows")
 
     # Use first 70% of each user's history so the last 30% stays unseen for evaluation
