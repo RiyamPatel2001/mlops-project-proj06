@@ -7,7 +7,7 @@ __pycache__/
 mlruns/
 mlartifacts/
 models/artifacts/
-training/models/artifacts/
+training/models/**/artifacts/
 __pycache__/
 *.pyc
 *.pyo
@@ -30,4 +30,4 @@ terraform.tfvars
 terraform.tfstate
 terraform.tfstate.backup
 .terraform/
-.terraform.lock.hcl
+.terraform.lock.hcl.DS_Store

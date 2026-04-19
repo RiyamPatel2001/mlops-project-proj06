@@ -26,7 +26,7 @@ import yaml
 
 # ── Sweep grids ───────────────────────────────────────────────────────────────
 
-FASTTEXT_LRS = [0.5, 2.0]
+FASTTEXT_LRS = [0.5, 1.0]
 TFIDF_CS     = [1.0, 10.0]
 
 BASE_CONFIG_PATH = "config.yaml"
@@ -70,7 +70,7 @@ def run_training(config_path: str) -> int:
         [sys.executable, TRAIN_SCRIPT, "--config", config_path],
         check=False,
         # Run from the training/ directory so that
-        # importlib.import_module("models.fasttext_model") resolves correctly.
+        # importlib.import_module("models.layer1.fasttext_model") resolves correctly.
         cwd=SCRIPT_DIR,
     )
     return result.returncode

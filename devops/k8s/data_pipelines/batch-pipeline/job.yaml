@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: batch-pipeline
+  namespace: mlops
+  labels:
+    app: batch-pipeline
+    project: proj06
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: batch-pipeline
+        project: proj06
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: batch-pipeline
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/batch-pipeline:latest
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          env:
+            - name: FEEDBACK_URL
+              value: "http://serving-service.mlops.svc.cluster.local:8000/feedback/export"
+            - name: MINIO_ENDPOINT
+              value: "http://minio.mlops.svc.cluster.local:9000"
+            - name: MINIO_ACCESS_KEY
+              value: "minioadmin"
+            - name: MINIO_SECRET_KEY
+              value: "minioadmin123"
+            - name: MINIO_BUCKET
+              value: "data"

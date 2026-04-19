@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install requests boto3 --no-cache-dir
+
+COPY batch_pipeline.py .
+
+ENTRYPOINT ["python", "batch_pipeline.py"]

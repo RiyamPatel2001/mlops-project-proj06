@@ -10,3 +10,4 @@ numpy==1.26.*
 pandas==2.2.*
 PyYAML==6.0.*
 scikit-learn==1.5.*
+minio==7.2.*

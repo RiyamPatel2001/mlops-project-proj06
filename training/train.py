@@ -23,6 +23,7 @@ What it does (in order):
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -37,15 +38,16 @@ from sklearn.preprocessing import LabelEncoder
 
 # ── Local modules (same package) ─────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(__file__))
-import preprocess
+import utils as preprocess
 import evaluate as eval_module
 
 # Model registry — add new candidates here as you build them
 MODEL_REGISTRY = {
-    "tfidf_logreg": "models.tfidf_logreg",
-    "fasttext":     "models.fasttext_model",
-    "minilm":       "models.minilm_finetune",
-    "distilbert":   "models.distilbert_finetune",
+    "tfidf_logreg": "models.layer1.tfidf_logreg",
+    "fasttext":     "models.layer1.fasttext",
+    "minilm":       "models.layer1.minilm_finetune",
+    "distilbert":   "models.layer1.distilbert_finetune",
+    "mpnet":        "models.layer1.mpnet_finetune",
 }
 
 
@@ -95,14 +97,43 @@ def setup_mlflow(cfg: dict) -> None:
     cfg["mlflow"]["tracking_uri"] = uri
 
 
+# Maps model-specific param names to canonical top-level names so that
+# runs from different models align in the MLflow comparison table.
+_PARAM_ALIASES = {
+    "lr":    "learning_rate",   # fasttext -> canonical
+    "epoch": "num_epochs",      # fasttext -> canonical
+}
+
+
+def get_git_sha() -> str:
+    # Docker containers don't have .git (build context is training/ only).
+    # Callers should pass GIT_SHA=$(git rev-parse HEAD) via -e at docker run time.
+    if sha := os.environ.get("GIT_SHA", "").strip():
+        return sha
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
+        ).decode().strip()
+    except Exception:
+        return "unknown"
+
+
 def log_config_params(cfg: dict) -> None:
-    """Flatten config to MLflow params. Nested dicts become 'section.key'."""
+    """
+    Log config to MLflow with normalized param names.
+
+    Top-level scalars (model, val_frac, random_state) are logged as-is.
+    Only the active model's hyperparameters are logged — remapped to canonical
+    names so they align across runs in the MLflow comparison table instead of
+    producing sparse per-model columns.
+    """
     for key, value in cfg.items():
-        if isinstance(value, dict):
-            for subkey, subvalue in value.items():
-                mlflow.log_param(f"{key}.{subkey}", subvalue)
-        else:
+        if not isinstance(value, dict):
             mlflow.log_param(key, value)
+
+    model_params = cfg.get(cfg["model"], {})
+    for key, value in model_params.items():
+        mlflow.log_param(_PARAM_ALIASES.get(key, key), value)
 
 
 # ── 6. Preprocessing ──────────────────────────────────────────────────────────
@@ -157,7 +188,47 @@ def run_preprocessing(cfg: dict) -> tuple[pd.Series, pd.Series, np.ndarray, np.n
     y_train = df_train["label"].values
     y_val   = df_val["label"].values
 
+    upload_processed_to_minio(cfg, processed_dir)
+
     return X_train, X_val, y_train, y_val, label_classes
+
+
+# ── 6b. Upload processed splits to MinIO ─────────────────────────────────────
+
+def upload_processed_to_minio(cfg: dict, processed_dir: str) -> None:
+    try:
+        from minio import Minio
+    except ImportError:
+        print("[minio] WARNING: minio package not installed — skipping upload.")
+        return
+
+    minio_cfg = cfg.get("minio", {})
+    if not minio_cfg:
+        print("[minio] No minio config found — skipping upload.")
+        return
+
+    try:
+        endpoint = minio_cfg["endpoint"].replace("http://", "").replace("https://", "")
+        secure   = minio_cfg["endpoint"].startswith("https://")
+        client   = Minio(
+            endpoint,
+            access_key=os.environ.get("MINIO_ACCESS_KEY", minio_cfg.get("access_key", "minioadmin")),
+            secret_key=os.environ.get("MINIO_SECRET_KEY", minio_cfg.get("secret_key", "minioadmin")),
+            secure=secure,
+        )
+
+        bucket = minio_cfg["bucket"]
+
+        for filename in ("train.csv", "val.csv", "label_classes.json"):
+            local_path = os.path.join(processed_dir, filename)
+            if not os.path.exists(local_path):
+                continue
+            object_name = f"data/processed/{filename}"
+            client.fput_object(bucket, object_name, local_path)
+            print(f"[minio] Uploaded {filename} → {bucket}/{object_name}")
+
+    except Exception as e:
+        print(f"[minio] WARNING: upload failed — {e}. Continuing without MinIO upload.")
 
 
 # ── 7. Model dispatch ─────────────────────────────────────────────────────────
@@ -201,7 +272,7 @@ def save_and_log_model(vec, clf, cfg: dict) -> None:
         # fasttext has its own binary format — save the underlying C++ model
         artifact_path = os.path.join(output_dir, f"{model_name}.bin")
         clf._model.save_model(artifact_path)
-    elif model_name in ["minilm", "distilbert"]:
+    elif model_name in ["minilm", "distilbert", "mpnet"]:
         # HuggingFace transformers — save in their native format
         artifact_path = os.path.join(output_dir, model_name)
         clf.save(artifact_path)
@@ -230,6 +301,9 @@ def main() -> None:
 
     # 4. Start run — named after the model for readable MLflow UI
     with mlflow.start_run(run_name=cfg["model"]):
+
+        # Tag the run with the git SHA so every run is traceable to a commit
+        mlflow.set_tag("git_sha", get_git_sha())
 
         # 5. Log all config params up front
         log_config_params(cfg)
