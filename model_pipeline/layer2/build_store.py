@@ -22,7 +22,6 @@ import pickle
 import yaml
 import numpy as np
 import pandas as pd
-import mlflow
 from minio import Minio
 
 from model_pipeline.layer2.embedder import Embedder
@@ -128,15 +127,6 @@ def main():
         pickle.dump(store, f)
     print(f"Saved store to {output_path}")
 
-    mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"].strip())
-    mlflow.set_experiment(cfg["mlflow"]["experiment_name"])
-
-    with mlflow.start_run(run_name="build_store"):
-        mlflow.log_param("layer2.model_name", l2["model_name"])
-        mlflow.log_param("layer2.num_users", len(store))
-        mlflow.log_param("layer2.store_transactions", len(df))
-        mlflow.log_artifact(output_path)
-        print("Logged artifact to MLflow.")
 
 
 if __name__ == "__main__":

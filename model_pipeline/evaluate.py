@@ -74,7 +74,7 @@ def predict_batch(
     records = []
     for i, row in enumerate(df_test.itertuples(index=False)):
         labels, probs = layer1_model.predict(row.payee, k=1)
-        l1_cat  = labels[0].replace("__label__", "")
+        l1_cat  = labels[0].replace("__label__", "").replace("_", " ")
         l1_conf = float(probs[0])
 
         user_data = store.get(row.user_id)
@@ -189,6 +189,9 @@ def main() -> None:
         mlflow.log_param("similarity_threshold",  l2["similarity_threshold"])
         mlflow.log_param("min_history",           l2["min_history"])
         mlflow.log_param("layer1_model_uri",      cfg["layer1"]["model_uri"])
+        mlflow.log_param("layer1_model_name",     cfg["layer1"].get("model_version", "unknown"))
+        layer1_run_id = cfg["layer1"]["model_uri"].split("/")[1] if cfg["layer1"]["model_uri"].startswith("runs:/") else "unknown"
+        mlflow.log_param("layer1_run_id",         layer1_run_id)
 
         with tempfile.TemporaryDirectory() as tmp:
             json_path    = os.path.join(tmp, "layer2_eval_report.json")
