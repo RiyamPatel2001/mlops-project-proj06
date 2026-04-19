@@ -26,7 +26,10 @@ spec:
               image: ghcr.io/riyampatel2001/mlops-project-proj06/layer2-store:latest
               imagePullPolicy: Always
               command: ['python', '-m', 'model_pipeline.layer3.pipeline']
-              env:
+              envFrom:
+            - secretRef:
+                name: proj06-env
+          env:
                 - name: MINIO_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:

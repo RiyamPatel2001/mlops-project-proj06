@@ -50,6 +50,9 @@ spec:
             - name: http
               containerPort: 8000
               protocol: TCP
+          envFrom:
+            - secretRef:
+                name: proj06-env
           env:
             - name: MODEL_TYPE
               value: "fasttext"

@@ -25,6 +25,9 @@ spec:
             limits:
               cpu: "1000m"
               memory: "2Gi"
+          envFrom:
+            - secretRef:
+                name: proj06-env
           env:
             - name: FEEDBACK_URL
               value: "http://serving-service.mlops.svc.cluster.local:8000/feedback/export"
