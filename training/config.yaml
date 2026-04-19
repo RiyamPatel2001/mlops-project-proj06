@@ -34,11 +34,11 @@ mlflow:
   experiment_name: layer1-categorizer
 
 # ── MinIO (for storing data) ─────────────────────────────
-minio:
-  endpoint: "http://10.43.4.193:9000"
-  access_key: "minioadmin"
-  secret_key: "minioadmin123"
-  bucket: "data"
+#minio:
+#  endpoint: "http://10.43.4.193:9000"
+#  access_key: "minioadmin"
+#  secret_key: "minioadmin123"
+#  bucket: "data"
 
 # ── Model-specific hyperparameters ───────────────────────────
 # Only the section matching "model" above is used by train.py.
