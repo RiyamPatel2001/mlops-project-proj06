@@ -48,6 +48,8 @@ def load_config(path: str) -> dict:
 def _load_layer1(cfg: dict):
     mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"].strip())
     local_path = mlflow.artifacts.download_artifacts(cfg["layer1"]["model_uri"])
+    if os.path.isfile(local_path) and local_path.endswith(".bin"):
+        return fasttext.load_model(local_path)
     bin_files  = [f for f in os.listdir(local_path) if f.endswith(".bin")]
     if not bin_files:
         raise FileNotFoundError(f"No .bin file found in {local_path}")
