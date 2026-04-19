@@ -27,8 +27,8 @@ metadata:
     # When serving team pushes ghcr.io/.../transaction-classifier:vX.Y.Z,
     # Image Updater detects it and commits the updated tag to Git.
     # Argo CD then syncs the new image to the cluster automatically.
-    argocd-image-updater.argoproj.io/image-list: classifier=ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier
-    argocd-image-updater.argoproj.io/classifier.update-strategy: semver
+    argocd-image-updater.argoproj.io/image-list: classifier=ghcr.io/jayrajpamnani/ml-serving
+    argocd-image-updater.argoproj.io/classifier.update-strategy: latest
     argocd-image-updater.argoproj.io/write-back-method: git
     argocd-image-updater.argoproj.io/git-branch: main
 spec:
@@ -44,8 +44,7 @@ spec:
     spec:
       containers:
         - name: fastapi
-          # Replace with the actual pushed image before deploying
-          image: ghcr.io/proj06/transaction-classifier:latest
+          image: ghcr.io/jayrajpamnani/ml-serving:latest
           imagePullPolicy: Always
           ports:
             - name: http
@@ -64,7 +63,7 @@ spec:
               value: "v1"
           resources:
             requests:
-              cpu: "500m"
+              cpu: "200m"
               memory: "512Mi"
             limits:
               cpu: "1000m"
