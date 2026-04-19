@@ -1,1 +1,0 @@
-These are the files modified or added on top of the upstream ActualBudget open-source repo. To apply them, copy each file into the corresponding path in a fresh ActualBudget clone.
