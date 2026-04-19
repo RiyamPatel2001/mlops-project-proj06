@@ -25,6 +25,9 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
+          envFrom:
+            - secretRef:
+                name: proj06-env
           env:
             - name: SERVING_URL
               value: "http://serving-service.mlops.svc.cluster.local:8000"
