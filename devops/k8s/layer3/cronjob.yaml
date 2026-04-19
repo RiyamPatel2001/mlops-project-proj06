@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: layer3-pipeline
+  namespace: mlops
+  labels:
+    app: layer3-pipeline
+    project: proj06
+spec:
+  schedule: '0 2 * * 0'   # every Sunday at 02:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: layer3-pipeline
+            project: proj06
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: layer3
+              image: ghcr.io/riyampatel2001/mlops-project-proj06/layer2-store:latest
+              imagePullPolicy: Always
+              command: ['python', '-m', 'model_pipeline.layer3.pipeline']
+              env:
+                - name: MINIO_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: accesskey
+                - name: MINIO_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: secretkey
+                - name: MINIO_ENDPOINT_URL
+                  value: http://minio.mlops.svc.cluster.local:9000
+                - name: MLFLOW_TRACKING_URI
+                  valueFrom:
+                    secretKeyRef:
+                      name: mlflow-uri
+                      key: uri
+                - name: POSTGRES_DSN
+                  value: postgresql://mlops_user:mlops_pass@postgres.mlops.svc.cluster.local:5432/mlops
+                - name: ARTIFACTS_PATH
+                  value: /app/artifacts
+              resources:
+                requests:
+                  cpu: '200m'
+                  memory: '512Mi'
+                limits:
+                  cpu: '500m'
+                  memory: '1Gi'
+              volumeMounts:
+                - name: artifacts
+                  mountPath: /app/artifacts
+          volumes:
+            - name: artifacts
+              persistentVolumeClaim:
+                claimName: artifacts-pvc
