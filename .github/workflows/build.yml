@@ -115,7 +115,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v5
         with:
-          context: model_pipeline/layer2
+          context: .
           file: model_pipeline/layer2/Dockerfile
           push: true
           tags: ghcr.io/${{ env.REPO }}/layer2-store:latest
