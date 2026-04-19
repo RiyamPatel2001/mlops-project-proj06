@@ -26,14 +26,13 @@ spec:
               cpu: "500m"
               memory: "512Mi"
           env:
-            - name: OUTPUT_PATH
-              value: "/data/synthetic"
-            - name: NUM_SAMPLES
-              value: "1000"
-          volumeMounts:
-            - name: data-storage
-              mountPath: /data
-      volumes:
-        - name: data-storage
-          persistentVolumeClaim:
-            claimName: data-pvc
+            - name: SERVING_URL
+              value: "http://serving-service.mlops.svc.cluster.local:8000"
+            - name: MINIO_ENDPOINT
+              value: "http://minio.mlops.svc.cluster.local:9000"
+            - name: MINIO_ACCESS_KEY
+              value: "minioadmin"
+            - name: MINIO_SECRET_KEY
+              value: "minioadmin123"
+            - name: MINIO_BUCKET
+              value: "data"
