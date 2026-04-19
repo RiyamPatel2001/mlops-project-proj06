@@ -61,7 +61,7 @@ class Predictor:
     def _layer1_predict(self, payee: str):
         """Returns (category, confidence) from fastText."""
         labels, probs = self.layer1_model.predict(payee, k=1)
-        category = labels[0].replace("__label__", "")
+        category = labels[0].replace("__label__", "").replace("_", " ")
         confidence = float(probs[0])
         return category, confidence
 
