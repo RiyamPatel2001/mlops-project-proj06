@@ -36,6 +36,8 @@ mlflow:
 # ── MinIO (for storing data) ─────────────────────────────
 minio:
   endpoint: "http://10.43.4.193:9000"
+  access_key: "minioadmin"
+  secret_key: "minioadmin123"
   bucket: "data"
 
 # ── Model-specific hyperparameters ───────────────────────────
