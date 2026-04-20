@@ -44,6 +44,10 @@ spec:
         app: transaction-classifier
         project: proj06
     spec:
+      # local-path PVCs are node-local, so serving must stay on the node that
+      # provisions the model/artifact volumes.
+      nodeSelector:
+        kubernetes.io/hostname: proj06-node3
       containers:
         - name: fastapi
           image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:2cd2b17fbe604a89329ea86db3ffb54ddbc60301
