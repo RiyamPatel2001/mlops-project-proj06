@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adminer
+  namespace: mlops
+  labels:
+    app: adminer
+    project: proj06
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adminer
+  template:
+    metadata:
+      labels:
+        app: adminer
+        project: proj06
+    spec:
+      containers:
+        - name: adminer
+          image: adminer:4.8.1-standalone
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: ADMINER_DEFAULT_SERVER
+              value: postgres
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
