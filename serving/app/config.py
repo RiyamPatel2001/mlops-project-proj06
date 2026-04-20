@@ -11,20 +11,47 @@ MLFLOW_TRACKING_URI = os.getenv(
     "http://mlflow-proj06.mlops.svc.cluster.local:5000",
 )
 
-MLFLOW_MODEL_URI = os.getenv(
-    "MLFLOW_MODEL_URI",
-    "models:/layer1-classifier/latest",
-)
-
-LAYER1_MODEL_KIND = os.getenv("LAYER1_MODEL_KIND", "hf").lower()
-
-LAYER1_MLFLOW_RUN_ID = os.getenv(
-    "LAYER1_MLFLOW_RUN_ID",
-    "5ff06329d3af4701a4cc83a659a7d07b",
-)
-LAYER1_MLFLOW_ARTIFACT_PATH = os.getenv("LAYER1_MLFLOW_ARTIFACT_PATH", "minilm")
-
 LAYER1_HF_MAX_LENGTH = int(os.getenv("LAYER1_HF_MAX_LENGTH", "128"))
+
+TIER_GOOD_MODEL_NAME = os.getenv("TIER_GOOD_MODEL_NAME", "minilm")
+TIER_GOOD_MODEL_KIND = os.getenv("TIER_GOOD_MODEL_KIND", "hf").lower()
+TIER_GOOD_RUN_ID = os.getenv(
+    "TIER_GOOD_RUN_ID",
+    "464cacf29c054edca5aa6ddc62f8816a",
+)
+TIER_GOOD_ARTIFACT_PATH = os.getenv("TIER_GOOD_ARTIFACT_PATH", "minilm")
+
+TIER_FAST_MODEL_NAME = os.getenv("TIER_FAST_MODEL_NAME", "fasttext")
+TIER_FAST_MODEL_KIND = os.getenv("TIER_FAST_MODEL_KIND", "fasttext").lower()
+TIER_FAST_RUN_ID = os.getenv(
+    "TIER_FAST_RUN_ID",
+    "e99c0f7fe5554fd584c9efd2162f5572",
+)
+TIER_FAST_ARTIFACT_PATH = os.getenv("TIER_FAST_ARTIFACT_PATH", "fasttext.bin")
+
+TIER_CHEAP_MODEL_NAME = os.getenv("TIER_CHEAP_MODEL_NAME", "tf_idf_logreg")
+TIER_CHEAP_MODEL_KIND = os.getenv("TIER_CHEAP_MODEL_KIND", "sklearn").lower()
+TIER_CHEAP_RUN_ID = os.getenv(
+    "TIER_CHEAP_RUN_ID",
+    "b69934eb9ef14e0a960a5b6345b0d8a4",
+)
+TIER_CHEAP_ARTIFACT_PATH = os.getenv(
+    "TIER_CHEAP_ARTIFACT_PATH",
+    "tfidf_logreg.joblib",
+)
+
+ROUTER_REQUEST_WINDOW_SECONDS = int(
+    os.getenv("ROUTER_REQUEST_WINDOW_SECONDS", "10")
+)
+ROUTER_BATCH_STICKY_TTL_SECONDS = int(
+    os.getenv("ROUTER_BATCH_STICKY_TTL_SECONDS", "900")
+)
+ROUTER_OVERLOAD_INFLIGHT_THRESHOLD = int(
+    os.getenv("ROUTER_OVERLOAD_INFLIGHT_THRESHOLD", "24")
+)
+ROUTER_OVERLOAD_SUSTAIN_SECONDS = float(
+    os.getenv("ROUTER_OVERLOAD_SUSTAIN_SECONDS", "2.0")
+)
 
 EMBEDDING_SERVICE_URL = os.getenv(
     "EMBEDDING_SERVICE_URL",

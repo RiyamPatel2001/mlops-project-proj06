@@ -33,9 +33,24 @@ def record_request(latency: float, confidence: float | None = None) -> None:
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
+    router_snapshot = layer1.get_router_snapshot()
     return HealthResponse(
         status="healthy" if db.pool_available() else "degraded",
-        model_version=layer1.get_model_version(),
+        model_version=router_snapshot.active_model_version,
+        active_tier=router_snapshot.active_tier,
+        active_model=router_snapshot.active_model_name,
+        interactive_tier=router_snapshot.interactive_tier,
+        interactive_model=router_snapshot.interactive_model_name,
+        bulk_tier=router_snapshot.bulk_tier,
+        bulk_model=router_snapshot.bulk_model_name,
+        pending_tier=router_snapshot.pending_tier,
+        demand_level=router_snapshot.demand_level,
+        overload_state=router_snapshot.overload_state,
+        active_batch_count=router_snapshot.active_batch_count,
+        total_inflight_requests=router_snapshot.total_inflight_requests,
+        last_request_mode=router_snapshot.last_request_mode,
+        request_rate_rps=router_snapshot.request_rate_rps,
+        models=[status.__dict__ for status in router_snapshot.models],
         uptime_seconds=round(time.time() - _start_time, 1),
     )
 
@@ -43,6 +58,7 @@ async def health_check() -> HealthResponse:
 @router.get("/metrics", response_class=PlainTextResponse)
 async def prometheus_metrics() -> str:
     lines: list[str] = []
+    router_snapshot = layer1.get_router_snapshot()
 
     lines.append("# HELP serving_requests_total Total classify requests")
     lines.append("# TYPE serving_requests_total counter")
@@ -67,7 +83,47 @@ async def prometheus_metrics() -> str:
             f"serving_confidence_bucket{{le=\"+Inf\"}} {len(_confidence_values)}"
         )
 
-    lines.append(f'serving_model_info{{version="{layer1.get_model_version()}"}} 1')
+    lines.append("# HELP serving_router_request_rate_rps Rolling request rate")
+    lines.append("# TYPE serving_router_request_rate_rps gauge")
+    lines.append(
+        f"serving_router_request_rate_rps {router_snapshot.request_rate_rps:.4f}"
+    )
+    lines.append("# HELP serving_router_inflight_requests Current inflight requests")
+    lines.append("# TYPE serving_router_inflight_requests gauge")
+    lines.append(
+        f"serving_router_inflight_requests {router_snapshot.total_inflight_requests}"
+    )
+    lines.append("# HELP serving_router_active_batches Current sticky bulk batches")
+    lines.append("# TYPE serving_router_active_batches gauge")
+    lines.append(
+        f"serving_router_active_batches {router_snapshot.active_batch_count}"
+    )
+
+    for overload_state in ("normal", "warming", "active"):
+        active = 1 if router_snapshot.overload_state == overload_state else 0
+        lines.append(
+            f'serving_router_overload_state{{state="{overload_state}"}} {active}'
+        )
+
+    lines.append(
+        f'serving_router_default_tier{{mode="interactive",tier="{router_snapshot.interactive_tier}"}} 1'
+    )
+    lines.append(
+        f'serving_router_default_tier{{mode="bulk",tier="{router_snapshot.bulk_tier}"}} 1'
+    )
+    lines.append(
+        f'serving_router_last_tier{{mode="{router_snapshot.last_request_mode}",tier="{router_snapshot.active_tier}"}} 1'
+    )
+
+    for status in router_snapshot.models:
+        labels = (
+            f'tier="{status.tier}",model="{status.model_name}",'
+            f'kind="{status.model_kind}",version="{status.model_version}"'
+        )
+        lines.append(f"serving_model_ready{{{labels}}} {1 if status.ready else 0}")
+        lines.append(f"serving_model_inflight{{{labels}}} {status.active_requests}")
+        lines.append(f"serving_model_info{{{labels}}} 1")
+
     lines.append(f"serving_db_connected {1 if db.pool_available() else 0}")
 
     return "\n".join(lines) + "\n"

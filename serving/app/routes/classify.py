@@ -19,9 +19,13 @@ async def classify_transaction(req: ClassifyRequest) -> ClassifyResponse:
     t0 = time.perf_counter()
 
     features = compute_features(req.payee, req.amount, req.date)
-    feature_vector = features["feature_vector"]
+    model_input = features["normalized_payee"]
 
-    l1_category, l1_confidence = layer1.predict(feature_vector)
+    l1_result = layer1.predict(
+        model_input,
+        request_mode=req.request_mode,
+        batch_id=req.batch_id,
+    )
 
     l2_result = await layer2.classify(req.user_id, req.payee)
     if l2_result is not None:
@@ -36,12 +40,12 @@ async def classify_transaction(req: ClassifyRequest) -> ClassifyResponse:
             model_version=None,
         )
 
-    record_request(time.perf_counter() - t0, l1_confidence)
+    record_request(time.perf_counter() - t0, l1_result.confidence)
     return ClassifyResponse(
         transaction_id=req.transaction_id,
         user_id=req.user_id,
-        prediction_category=l1_category,
-        confidence=round(l1_confidence, 4),
+        prediction_category=l1_result.category,
+        confidence=l1_result.confidence,
         source="layer1",
-        model_version=layer1.get_model_version(),
+        model_version=l1_result.model_version,
     )

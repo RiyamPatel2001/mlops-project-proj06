@@ -35,22 +35,10 @@ data:
             replacement: $1:$2
             target_label: __address__
 
-      - job_name: 'mlflow'
-        static_configs:
-          - targets: ['mlflow-proj06.mlops.svc.cluster.local:5000']
-        metrics_path: '/metrics'
-        scrape_timeout: 10s
-
       - job_name: 'transaction-classifier'
         static_configs:
           - targets: ['transaction-classifier.mlops.svc.cluster.local:8000']
         metrics_path: '/metrics'
-        scrape_timeout: 10s
-
-      - job_name: 'minio'
-        static_configs:
-          - targets: ['minio.mlops.svc.cluster.local:9000']
-        metrics_path: '/minio/v2/metrics/cluster'
         scrape_timeout: 10s
 
   alerts.yml: |

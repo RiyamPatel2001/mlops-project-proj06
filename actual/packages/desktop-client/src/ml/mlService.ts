@@ -25,6 +25,10 @@ const ML_SERVING_URL =
     (window as Record<string, unknown>).__ML_SERVING_URL__) ||
   resolveBrowserDefaultServingUrl();
 
+function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface ClassifyRequest {
@@ -33,6 +37,8 @@ export interface ClassifyRequest {
   amount: number;
   payee_name: string;
   imported_id: string;
+  requestMode?: 'interactive' | 'bulk';
+  batchId?: string;
 }
 
 export interface ClassifyResponse {
@@ -42,12 +48,18 @@ export interface ClassifyResponse {
   model_version: string;
 }
 
+export type ClassificationRequestMode = 'interactive' | 'bulk';
+
+export const DEFAULT_BULK_CLASSIFY_CONCURRENCY = 6;
+
 interface APIClassifyRequest {
   transaction_id: string;
   user_id: string;
   payee: string;
   amount: number;
   date: string;
+  request_mode?: ClassificationRequestMode;
+  batch_id?: string;
 }
 
 interface APIClassifyResponse {
@@ -86,6 +98,13 @@ export interface SuggestionResponsePayload {
   suggested_category: string;
 }
 
+export function createClassificationBatchId(accountId: string): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ||
+    `ml-batch-${accountId}-${Date.now().toString(36)}`
+  );
+}
+
 // ── API Calls ───────────────────────────────────────────────────────────────
 
 async function post<T>(path: string, body: unknown): Promise<T | null> {
@@ -121,19 +140,62 @@ export async function classifyTransaction(
     payee: req.payee_name,
     amount: req.amount,
     date: req.date,
+    request_mode: req.requestMode,
+    batch_id: req.batchId,
   };
 
-  const result = await post<APIClassifyResponse>('/classify', payload);
-  if (!result) {
-    return null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const result = await post<APIClassifyResponse>('/classify', payload);
+    if (result) {
+      return {
+        category: result.prediction_category,
+        confidence: result.confidence ?? 1,
+        source: result.source,
+        model_version: result.model_version ?? '',
+      };
+    }
+
+    if (attempt < 2) {
+      await delay(250 * (attempt + 1));
+    }
   }
 
-  return {
-    category: result.prediction_category,
-    confidence: result.confidence ?? 1,
-    source: result.source,
-    model_version: result.model_version ?? '',
-  };
+  return null;
+}
+
+export async function classifyTransactions(
+  requests: ClassifyRequest[],
+  options: {
+    requestMode?: ClassificationRequestMode;
+    batchId?: string;
+    concurrency?: number;
+  } = {},
+): Promise<Array<ClassifyResponse | null>> {
+  const concurrency = Math.max(1, options.concurrency ?? 1);
+  const results = new Array<ClassifyResponse | null>(requests.length).fill(null);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < requests.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+
+      const req = requests[currentIndex];
+      results[currentIndex] = await classifyTransaction({
+        ...req,
+        requestMode: req.requestMode ?? options.requestMode,
+        batchId: req.batchId ?? options.batchId,
+      });
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, requests.length) }, () =>
+      worker(),
+    ),
+  );
+
+  return results;
 }
 
 export async function submitFeedback(

@@ -46,7 +46,7 @@ spec:
     spec:
       containers:
         - name: fastapi
-          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:latest
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:3b5202e7c85fccc048cd0733967405a48ee66372
           imagePullPolicy: Always
           ports:
             - name: http
@@ -73,7 +73,7 @@ spec:
               ephemeral-storage: "4Gi"
             limits:
               cpu: "1000m"
-              memory: "1Gi"
+              memory: "2Gi"
               ephemeral-storage: "8Gi"
           volumeMounts:
             - name: serving-models

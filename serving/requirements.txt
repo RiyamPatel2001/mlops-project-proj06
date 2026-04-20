@@ -2,9 +2,12 @@ fastapi
 uvicorn[standard]
 asyncpg
 httpx
-numpy
+numpy<2
 pandas
 mlflow
 pydantic>=2.0
 torch
 transformers
+fasttext-wheel==0.9.2
+joblib
+scikit-learn==1.5.2
