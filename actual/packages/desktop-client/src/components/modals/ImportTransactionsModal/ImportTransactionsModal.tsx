@@ -217,6 +217,7 @@ export function ImportTransactionsModal({
   const [mlPreds, setMlPreds] = useState<MLPrediction[]>([]);
   const [mlAction, setMlAction] = useState<'pending' | 'confirmed' | 'rejected'>('pending');
   const [mlApplied, setMlApplied] = useState<{ id: string }[]>([]);
+  const [mlStatusMessage, setMlStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<{
     parsed: boolean;
     message: string;
@@ -769,7 +770,9 @@ export function ImportTransactionsModal({
           }
 
           setLoadingState('classifying');
+          setMlStatusMessage(null);
           const preds: typeof mlPreds = [];
+          let classifierFailures = 0;
           try {
             const allTxns = await send('api/transactions-get', { accountId }) as { id: string; payee?: string; imported_payee?: string; amount?: number; date?: string; category?: string }[];
             const uncategorized = (allTxns || []).filter(t => !t.category);
@@ -796,15 +799,41 @@ export function ImportTransactionsModal({
                       confidence: r.confidence,
                       source: r.source,
                     });
+                  } else if (!r) {
+                    classifierFailures += 1;
                   }
-                } catch { /* skip */ }
+                } catch {
+                  classifierFailures += 1;
+                }
               }),
             );
-          } catch { /* skip */ }
+          } catch {
+            classifierFailures += 1;
+          }
           setLoadingState(null);
 
           if (preds.length > 0) {
             setMlPreds(preds);
+            if (classifierFailures > 0) {
+              setMlStatusMessage(
+                t(
+                  'Some transactions could not be classified because the ML classifier was temporarily unavailable.',
+                ),
+              );
+            }
+            setMlReviewPhase(true);
+            return;
+          }
+
+          if (classifierFailures > 0) {
+            setMlPreds([]);
+            setMlAction('pending');
+            setMlApplied([]);
+            setMlStatusMessage(
+              t(
+                'Transactions were imported, but the ML classifier is currently unavailable. Please try the import again after the classifier pod recovers.',
+              ),
+            );
             setMlReviewPhase(true);
             return;
           }
@@ -1510,39 +1539,50 @@ export function ImportTransactionsModal({
           {mlReviewPhase && (
             <View style={{ padding: 20 }}>
               <Text style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>
-                {t('ML Category Predictions')}
+                {mlPreds.length > 0
+                  ? t('ML Category Predictions')
+                  : t('ML Classifier Status')}
               </Text>
-              <Text style={{ fontSize: 13, color: theme.pageTextSubdued, marginBottom: 16 }}>
-                {t('The model predicted categories for {{count}} transactions. Review them, edit categories if needed, and then confirm or reject them.', { count: mlPreds.length })}
-              </Text>
+              {mlPreds.length > 0 && (
+                <Text style={{ fontSize: 13, color: theme.pageTextSubdued, marginBottom: 16 }}>
+                  {t('The model predicted categories for {{count}} transactions. Review them, edit categories if needed, and then confirm or reject them.', { count: mlPreds.length })}
+                </Text>
+              )}
+              {mlStatusMessage && (
+                <Text style={{ fontSize: 13, color: theme.pageTextSubdued, marginBottom: 16 }}>
+                  {mlStatusMessage}
+                </Text>
+              )}
 
-              <View style={{ maxHeight: 350, overflow: 'auto', border: '1px solid ' + (theme.tableBorder || '#ddd'), borderRadius: 4 }}>
-                <View style={{ display: 'flex', flexDirection: 'row', backgroundColor: theme.tableHeaderBackground, padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>
-                  <Text style={{ flex: 3 }}>{t('Payee')}</Text>
-                  <Text style={{ flex: 2, textAlign: 'right', paddingRight: 16 }}>{t('Amount')}</Text>
-                  <Text style={{ flex: 4, paddingLeft: 16 }}>{t('Category')}</Text>
-                </View>
-                {mlPreds.map((p, i) => (
-                  <View key={i} style={{ display: 'flex', flexDirection: 'row', padding: '6px 12px', borderBottom: '1px solid ' + (theme.tableBorder || '#ddd'), fontSize: 13 }}>
-                    <Text style={{ flex: 3 }}>{p.payee}</Text>
-                    <Text style={{ flex: 2, textAlign: 'right', paddingRight: 16, fontVariantNumeric: 'tabular-nums' }}>{(p.amount / 100).toFixed(2)}</Text>
-                    <View style={{ flex: 4, paddingLeft: 16 }}>
-                      <Select
-                        value={p.selectedCategory}
-                        defaultLabel={t('(none)')}
-                        options={mlCategoryOptions}
-                        onChange={value => {
-                          void onMlCategoryChange(p.id, String(value));
-                        }}
-                        style={{ width: '100%' }}
-                      />
-                    </View>
+              {mlPreds.length > 0 && (
+                <View style={{ maxHeight: 350, overflow: 'auto', border: '1px solid ' + (theme.tableBorder || '#ddd'), borderRadius: 4 }}>
+                  <View style={{ display: 'flex', flexDirection: 'row', backgroundColor: theme.tableHeaderBackground, padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>
+                    <Text style={{ flex: 3 }}>{t('Payee')}</Text>
+                    <Text style={{ flex: 2, textAlign: 'right', paddingRight: 16 }}>{t('Amount')}</Text>
+                    <Text style={{ flex: 4, paddingLeft: 16 }}>{t('Category')}</Text>
                   </View>
-                ))}
-              </View>
+                  {mlPreds.map((p, i) => (
+                    <View key={i} style={{ display: 'flex', flexDirection: 'row', padding: '6px 12px', borderBottom: '1px solid ' + (theme.tableBorder || '#ddd'), fontSize: 13 }}>
+                      <Text style={{ flex: 3 }}>{p.payee}</Text>
+                      <Text style={{ flex: 2, textAlign: 'right', paddingRight: 16, fontVariantNumeric: 'tabular-nums' }}>{(p.amount / 100).toFixed(2)}</Text>
+                      <View style={{ flex: 4, paddingLeft: 16 }}>
+                        <Select
+                          value={p.selectedCategory}
+                          defaultLabel={t('(none)')}
+                          options={mlCategoryOptions}
+                          onChange={value => {
+                            void onMlCategoryChange(p.id, String(value));
+                          }}
+                          style={{ width: '100%' }}
+                        />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
 
               <View style={{ flexDirection: 'row', gap: 10, marginTop: 16, alignItems: 'center' }}>
-                {mlAction === 'pending' && (
+                {mlPreds.length > 0 && mlAction === 'pending' && (
                   <>
                     <Button variant="primary" onPress={() => void mlConfirmAll()}>
                       {t('Confirm All')}
@@ -1552,7 +1592,7 @@ export function ImportTransactionsModal({
                     </Button>
                   </>
                 )}
-                {mlAction === 'confirmed' && (
+                {mlPreds.length > 0 && mlAction === 'confirmed' && (
                   <>
                     <Text style={{ color: theme.noticeTextDark || '#1a7f37', fontWeight: 600 }}>
                       {t('Categories applied to {{count}} transactions', { count: mlApplied.length })}
@@ -1562,7 +1602,7 @@ export function ImportTransactionsModal({
                     </Button>
                   </>
                 )}
-                {mlAction === 'rejected' && (
+                {mlPreds.length > 0 && mlAction === 'rejected' && (
                   <>
                     <Text style={{ color: theme.pageTextSubdued }}>
                       {t('Predictions rejected')}

@@ -73,7 +73,7 @@ spec:
               ephemeral-storage: "4Gi"
             limits:
               cpu: "1000m"
-              memory: "1Gi"
+              memory: "2Gi"
               ephemeral-storage: "8Gi"
           volumeMounts:
             - name: serving-models

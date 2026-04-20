@@ -25,6 +25,10 @@ const ML_SERVING_URL =
     (window as Record<string, unknown>).__ML_SERVING_URL__) ||
   resolveBrowserDefaultServingUrl();
 
+function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface ClassifyRequest {
@@ -123,17 +127,23 @@ export async function classifyTransaction(
     date: req.date,
   };
 
-  const result = await post<APIClassifyResponse>('/classify', payload);
-  if (!result) {
-    return null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const result = await post<APIClassifyResponse>('/classify', payload);
+    if (result) {
+      return {
+        category: result.prediction_category,
+        confidence: result.confidence ?? 1,
+        source: result.source,
+        model_version: result.model_version ?? '',
+      };
+    }
+
+    if (attempt < 2) {
+      await delay(250 * (attempt + 1));
+    }
   }
 
-  return {
-    category: result.prediction_category,
-    confidence: result.confidence ?? 1,
-    source: result.source,
-    model_version: result.model_version ?? '',
-  };
+  return null;
 }
 
 export async function submitFeedback(
