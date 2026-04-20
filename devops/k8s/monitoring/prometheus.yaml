@@ -46,46 +46,130 @@ data:
       - name: mlops-platform
         interval: 60s
         rules:
+          - record: serving:classify_error_rate_10m
+            expr: |
+              sum(rate(serving_classify_requests_total{status="error"}[10m]))
+              /
+              clamp_min(sum(rate(serving_classify_requests_total[10m])), 0.001)
 
-          # Pod restarting repeatedly
-          - alert: PodCrashLooping
-            expr: rate(serving_requests_total[5m]) == 0 and serving_db_connected == 0
-            for: 5m
-            labels:
-              severity: warning
-            annotations:
-              summary: "Classifier not serving and DB disconnected"
-              description: "No requests processed and DB connection lost for 5+ minutes."
+          - record: serving:classify_latency_p95_10m
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (le) (
+                  rate(serving_classify_request_latency_seconds_bucket{status="success"}[10m])
+                )
+              )
 
-          # Classifier down
+          - record: serving:low_confidence_ratio_30m
+            expr: |
+              sum(rate(serving_prediction_confidence_bucket{le="0.6"}[30m]))
+              /
+              clamp_min(sum(rate(serving_prediction_confidence_count[30m])), 0.001)
+
+          - record: serving:feedback_correction_rate_2h
+            expr: |
+              sum(rate(serving_feedback_total{outcome="corrected",status="success"}[2h]))
+              /
+              clamp_min(sum(rate(serving_feedback_total{status="success"}[2h])), 0.001)
+
+          - record: serving:promotion_ready_24h
+            expr: |
+              (
+                (
+                  sum(rate(serving_feedback_total{outcome="corrected",status="success"}[24h]))
+                  /
+                  clamp_min(sum(rate(serving_feedback_total{status="success"}[24h])), 0.001)
+                ) < bool 0.15
+              )
+              *
+              (
+                (
+                  sum(rate(serving_prediction_confidence_bucket{le="0.6"}[24h]))
+                  /
+                  clamp_min(sum(rate(serving_prediction_confidence_count[24h])), 0.001)
+                ) < bool 0.20
+              )
+              *
+              (sum(increase(serving_prediction_confidence_count[24h])) >= bool 200)
+              *
+              (sum(increase(serving_feedback_total{status="success"}[24h])) >= bool 25)
+              *
+              (max(up{job="transaction-classifier"}) == bool 1)
+              *
+              (max(serving_db_connected) == bool 1)
+
           - alert: ClassifierDown
             expr: up{job="transaction-classifier"} == 0
             for: 2m
             labels:
               severity: critical
+              trigger: rollback
             annotations:
               summary: "Transaction classifier is down"
-              description: "Prometheus cannot scrape the classifier /metrics endpoint."
+              description: "Prometheus cannot scrape the classifier metrics endpoint. Roll back if a fresh serving image caused the outage."
 
-          # MLflow down
-          - alert: MLflowDown
-            expr: up{job="mlflow"} == 0
-            for: 2m
+          - alert: ServingDatabaseDisconnected
+            expr: max(serving_db_connected) == 0
+            for: 5m
             labels:
               severity: critical
+              trigger: rollback
             annotations:
-              summary: "MLflow tracking server is down"
-              description: "Prometheus cannot reach MLflow. Training runs will fail."
+              summary: "Serving database connection is unavailable"
+              description: "Layer 2 lookups and feedback writes are degraded for 5+ minutes. Roll back if the issue started with a new serving release."
 
-          # High request rate (scale signal)
-          - alert: ClassifierHighLoad
-            expr: rate(serving_requests_total[5m]) > 10
-            for: 3m
+          - alert: ClassifierErrorRateHigh
+            expr: |
+              serving:classify_error_rate_10m > 0.05
+              and
+              sum(increase(serving_classify_requests_total[10m])) >= 20
+            for: 10m
             labels:
               severity: warning
+              trigger: rollback
             annotations:
-              summary: "Classifier request rate above 10 req/s"
-              description: "Consider scaling up the classifier deployment."
+              summary: "Classifier error rate is above 5%"
+              description: "More than 5% of classify requests are failing over a 10 minute window. This is a rollback signal for the active serving build."
+
+          - alert: ClassifierLatencyP95High
+            expr: |
+              serving:classify_latency_p95_10m > 1.5
+              and
+              sum(increase(serving_classify_requests_total{status="success"}[10m])) >= 20
+            for: 10m
+            labels:
+              severity: warning
+              trigger: investigate
+            annotations:
+              summary: "Classifier p95 latency is above 1.5 seconds"
+              description: "Sustained latency regression usually points to model loading, resource pressure, or a bad rollout."
+
+          - alert: PredictionLowConfidenceSpike
+            expr: |
+              serving:low_confidence_ratio_30m > 0.35
+              and
+              sum(increase(serving_prediction_confidence_count[30m])) >= 30
+            for: 30m
+            labels:
+              severity: warning
+              trigger: rollback
+            annotations:
+              summary: "Low-confidence predictions exceed 35%"
+              description: "A sustained low-confidence spike is a leading indicator of drift or a poor model rollout. Roll back if this pairs with user corrections."
+
+          - alert: UserCorrectionRateHigh
+            expr: |
+              serving:feedback_correction_rate_2h > 0.25
+              and
+              sum(increase(serving_feedback_total{status="success"}[2h])) >= 10
+            for: 30m
+            labels:
+              severity: critical
+              trigger: rollback
+            annotations:
+              summary: "Users are correcting more than 25% of reviewed predictions"
+              description: "This is the strongest rollback trigger because it reflects direct user-visible quality regression on real traffic."
 ---
 apiVersion: apps/v1
 kind: Deployment

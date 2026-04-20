@@ -4,31 +4,17 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Response
 
 from app import db, layer1
+from app.metrics import render_metrics
 from app.models import HealthResponse
+
+PROMETHEUS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
 router = APIRouter()
 
-_request_count: int = 0
-_request_latencies: list[float] = []
-_confidence_values: list[float] = []
-
 _start_time: float = time.time()
-
-
-def record_request(latency: float, confidence: float | None = None) -> None:
-    global _request_count
-    _request_count += 1
-    _request_latencies.append(latency)
-    if len(_request_latencies) > 10_000:
-        _request_latencies.pop(0)
-    if confidence is not None:
-        _confidence_values.append(confidence)
-        if len(_confidence_values) > 10_000:
-            _confidence_values.pop(0)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -55,75 +41,9 @@ async def health_check() -> HealthResponse:
     )
 
 
-@router.get("/metrics", response_class=PlainTextResponse)
-async def prometheus_metrics() -> str:
-    lines: list[str] = []
-    router_snapshot = layer1.get_router_snapshot()
-
-    lines.append("# HELP serving_requests_total Total classify requests")
-    lines.append("# TYPE serving_requests_total counter")
-    lines.append(f"serving_requests_total {_request_count}")
-
-    if _request_latencies:
-        avg_lat = sum(_request_latencies) / len(_request_latencies)
-        lines.append("# HELP serving_latency_seconds Average request latency")
-        lines.append("# TYPE serving_latency_seconds gauge")
-        lines.append(f"serving_latency_seconds {avg_lat:.6f}")
-
-    if _confidence_values:
-        avg_conf = sum(_confidence_values) / len(_confidence_values)
-        lines.append("# HELP serving_confidence_avg Average prediction confidence")
-        lines.append("# TYPE serving_confidence_avg gauge")
-        lines.append(f"serving_confidence_avg {avg_conf:.4f}")
-
-        for bucket in [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
-            count = sum(1 for c in _confidence_values if c <= bucket)
-            lines.append(f'serving_confidence_bucket{{le="{bucket}"}} {count}')
-        lines.append(
-            f"serving_confidence_bucket{{le=\"+Inf\"}} {len(_confidence_values)}"
-        )
-
-    lines.append("# HELP serving_router_request_rate_rps Rolling request rate")
-    lines.append("# TYPE serving_router_request_rate_rps gauge")
-    lines.append(
-        f"serving_router_request_rate_rps {router_snapshot.request_rate_rps:.4f}"
+@router.get("/metrics")
+async def prometheus_metrics() -> Response:
+    return Response(
+        content=render_metrics(),
+        media_type=PROMETHEUS_CONTENT_TYPE,
     )
-    lines.append("# HELP serving_router_inflight_requests Current inflight requests")
-    lines.append("# TYPE serving_router_inflight_requests gauge")
-    lines.append(
-        f"serving_router_inflight_requests {router_snapshot.total_inflight_requests}"
-    )
-    lines.append("# HELP serving_router_active_batches Current sticky bulk batches")
-    lines.append("# TYPE serving_router_active_batches gauge")
-    lines.append(
-        f"serving_router_active_batches {router_snapshot.active_batch_count}"
-    )
-
-    for overload_state in ("normal", "warming", "active"):
-        active = 1 if router_snapshot.overload_state == overload_state else 0
-        lines.append(
-            f'serving_router_overload_state{{state="{overload_state}"}} {active}'
-        )
-
-    lines.append(
-        f'serving_router_default_tier{{mode="interactive",tier="{router_snapshot.interactive_tier}"}} 1'
-    )
-    lines.append(
-        f'serving_router_default_tier{{mode="bulk",tier="{router_snapshot.bulk_tier}"}} 1'
-    )
-    lines.append(
-        f'serving_router_last_tier{{mode="{router_snapshot.last_request_mode}",tier="{router_snapshot.active_tier}"}} 1'
-    )
-
-    for status in router_snapshot.models:
-        labels = (
-            f'tier="{status.tier}",model="{status.model_name}",'
-            f'kind="{status.model_kind}",version="{status.model_version}"'
-        )
-        lines.append(f"serving_model_ready{{{labels}}} {1 if status.ready else 0}")
-        lines.append(f"serving_model_inflight{{{labels}}} {status.active_requests}")
-        lines.append(f"serving_model_info{{{labels}}} 1")
-
-    lines.append(f"serving_db_connected {1 if db.pool_available() else 0}")
-
-    return "\n".join(lines) + "\n"

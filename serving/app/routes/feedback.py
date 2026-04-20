@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from fastapi import APIRouter
 
 from app import db
+from app.metrics import record_feedback, record_feedback_failure
 from app.models import FeedbackExportRow, FeedbackRequest, StatusResponse
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,24 @@ async def submit_feedback(req: FeedbackRequest) -> StatusResponse:
         "reviewed_by_user": req.reviewed_by_user,
         "timestamp": ts,
     }
-    await db.insert_feedback(row)
+    try:
+        await db.insert_feedback(row)
+    except Exception:
+        logger.exception(
+            "Feedback insert failed for transaction_id=%s user_id=%s",
+            req.transaction_id,
+            req.user_id,
+        )
+        record_feedback_failure(source=req.source)
+        raise
+
+    record_feedback(
+        source=req.source,
+        original_prediction=req.original_prediction,
+        final_label=req.final_label,
+        reviewed_by_user=req.reviewed_by_user,
+        original_confidence=req.original_confidence,
+    )
     return StatusResponse(status="ok")
 
 

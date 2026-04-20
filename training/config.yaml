@@ -36,7 +36,7 @@ mlflow:
 promotion:
   target_tier: fast
   registry_path: ../serving/layer1_registry.json
-  minimum_accuracy_delta: 0.0
+  minimum_accuracy_delta: 0.01
   bootstrap:
     model_name: fasttext
     model_kind: fasttext

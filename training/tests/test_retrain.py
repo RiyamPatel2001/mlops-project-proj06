@@ -273,6 +273,27 @@ class RetrainEntrypointTests(unittest.TestCase):
         self.assertEqual(fast_tier["run_id"], "current-run")
         self.assertEqual(fake_mlflow.tags["promotion_status"], "rejected")
 
+    def test_requires_minimum_accuracy_delta_when_configured(self):
+        fake_mlflow = _FakeMlflow()
+        module, patchers = _load_retrain_module(
+            fake_mlflow,
+            self._train_module(),
+            self._evaluate_module(0.805),
+        )
+        self.addCleanup(lambda: [patcher.stop() for patcher in reversed(patchers)])
+
+        cfg = self._config()
+        cfg["promotion"]["minimum_accuracy_delta"] = 0.01
+        module.make_minio_client = lambda cfg: object()
+        module.download_latest_retraining_data = lambda client, cfg: self._dataset()
+        module._production_accuracy = lambda ref, X_val, y_val, label_classes: 0.80
+        module.train_module.load_config = lambda path: cfg
+
+        with mock.patch.object(sys, "argv", ["retrain.py", "--config", "config.yaml", "--no-merge"]):
+            module.main()
+
+        self.assertEqual(fake_mlflow.tags["promotion_status"], "rejected")
+
 
 if __name__ == "__main__":
     unittest.main()
