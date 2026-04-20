@@ -63,6 +63,9 @@ import {
 } from './utils';
 import type { DateFormat, FieldMapping, ImportTransaction } from './utils';
 
+const ML_PREDICTION_CONFIDENCE_THRESHOLD = 0.6;
+const ML_REVIEW_ROW_MIN_HEIGHT = 38;
+
 function CheckboxToggle({
   id,
   checked,
@@ -796,23 +799,27 @@ export function ImportTransactionsModal({
               concurrency: DEFAULT_BULK_CLASSIFY_CONCURRENCY,
             });
 
-            results.forEach((r, idx) => {
-              const tx = uncategorized[idx];
+            uncategorized.forEach((tx, idx) => {
+              const r = results[idx];
               const payeeName = tx.imported_payee || tx.payee || '';
-              if (r && r.confidence >= 0.5) {
-                preds.push({
-                  id: tx.id,
-                  payee: payeeName,
-                  amount: tx.amount || 0,
-                  date: tx.date || '',
-                  predictedCategory: r.category,
-                  selectedCategory: r.category,
-                  confidence: r.confidence,
-                  source: r.source,
-                });
-              } else if (!r) {
+              if (!r) {
                 classifierFailures += 1;
               }
+
+              preds.push({
+                id: tx.id,
+                payee: payeeName,
+                amount: tx.amount || 0,
+                date: tx.date || '',
+                predictedCategory: r?.category || '',
+                selectedCategory:
+                  r?.confidence >= ML_PREDICTION_CONFIDENCE_THRESHOLD &&
+                  r.category
+                    ? r.category
+                    : '',
+                confidence: r?.confidence ?? 0,
+                source: r?.source || '',
+              });
             });
           } catch {
             classifierFailures += 1;
@@ -1563,24 +1570,67 @@ export function ImportTransactionsModal({
 
               {mlPreds.length > 0 && (
                 <View style={{ maxHeight: 350, overflow: 'auto', border: '1px solid ' + (theme.tableBorder || '#ddd'), borderRadius: 4 }}>
-                  <View style={{ display: 'flex', flexDirection: 'row', backgroundColor: theme.tableHeaderBackground, padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>
+                  <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', backgroundColor: theme.tableHeaderBackground, padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>
                     <Text style={{ flex: 3 }}>{t('Payee')}</Text>
                     <Text style={{ flex: 2, textAlign: 'right', paddingRight: 16 }}>{t('Amount')}</Text>
                     <Text style={{ flex: 4, paddingLeft: 16 }}>{t('Category')}</Text>
                   </View>
-                  {mlPreds.map((p, i) => (
-                    <View key={i} style={{ display: 'flex', flexDirection: 'row', padding: '6px 12px', borderBottom: '1px solid ' + (theme.tableBorder || '#ddd'), fontSize: 13 }}>
-                      <Text style={{ flex: 3 }}>{p.payee}</Text>
-                      <Text style={{ flex: 2, textAlign: 'right', paddingRight: 16, fontVariantNumeric: 'tabular-nums' }}>{(p.amount / 100).toFixed(2)}</Text>
-                      <View style={{ flex: 4, paddingLeft: 16 }}>
+                  {mlPreds.map(p => (
+                    <View
+                      key={p.id}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        minHeight: ML_REVIEW_ROW_MIN_HEIGHT,
+                        padding: '4px 12px',
+                        borderBottom:
+                          '1px solid ' + (theme.tableBorder || '#ddd'),
+                        fontSize: 13,
+                      }}
+                    >
+                      <View
+                        style={{
+                          flex: 3,
+                          minHeight: ML_REVIEW_ROW_MIN_HEIGHT - 8,
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Text>{p.payee}</Text>
+                      </View>
+                      <View
+                        style={{
+                          flex: 2,
+                          minHeight: ML_REVIEW_ROW_MIN_HEIGHT - 8,
+                          justifyContent: 'center',
+                          paddingRight: 16,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            textAlign: 'right',
+                            fontVariantNumeric: 'tabular-nums',
+                          }}
+                        >
+                          {(p.amount / 100).toFixed(2)}
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          flex: 4,
+                          minHeight: ML_REVIEW_ROW_MIN_HEIGHT - 8,
+                          justifyContent: 'center',
+                          paddingLeft: 16,
+                        }}
+                      >
                         <Select
                           value={p.selectedCategory}
-                          defaultLabel={t('(none)')}
+                          defaultLabel=""
                           options={mlCategoryOptions}
                           onChange={value => {
                             void onMlCategoryChange(p.id, String(value));
                           }}
-                          style={{ width: '100%' }}
+                          style={{ width: '100%', minHeight: 28 }}
                         />
                       </View>
                     </View>
