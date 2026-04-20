@@ -1,0 +1,55 @@
+FROM python:3.11-slim
+
+WORKDIR /app/training
+
+# git is required so MLflow can capture the git SHA
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+# Copy only requirements here so this layer is cached across code-only rebuilds.
+# When running from the project root use:  docker build -f training/Dockerfile.retrain training/
+# When running from training/ use:         docker build -f Dockerfile.retrain .
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ── Runtime volume mounts (nothing else is baked in) ──────────────────────────
+#
+# Scripts and config are mounted at runtime so you never need to rebuild
+# just because retrain.py / config.yaml changed.
+#
+# ┌─ From the PROJECT ROOT ────────────────────────────────────────────────────┐
+# │  docker build -f training/Dockerfile.retrain -t categorizer-retrain        │
+# │               training/                                                     │
+# │                                                                             │
+# │  docker run --rm \                                                          │
+# │    -v $(pwd)/training:/app/training \                                       │
+# │    -v $(pwd)/data:/app/data \                                               │
+# │    -e MLFLOW_TRACKING_URI=http://<mlflow-host>:30500 \                      │
+# │    -e MINIO_ACCESS_KEY=minioadmin \                                         │
+# │    -e MINIO_SECRET_KEY=minioadmin123 \                                      │
+# │    -e GIT_SHA=$(git rev-parse HEAD) \                                       │
+# │    categorizer-retrain                                                      │
+# │                                                                             │
+# │  # --no-merge flag (skip base-dataset merge):                               │
+# │  docker run --rm ... categorizer-retrain --no-merge                         │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# ┌─ From the TRAINING/ DIR ────────────────────────────────────────────────────┐
+# │  docker build -f Dockerfile.retrain -t categorizer-retrain .                │
+# │                                                                             │
+# │  docker run --rm \                                                          │
+# │    -v $(pwd):/app/training \                                                │
+# │    -v $(pwd)/../data:/app/data \                                            │
+# │    -e MLFLOW_TRACKING_URI=http://<mlflow-host>:30500 \                      │
+# │    -e MINIO_ACCESS_KEY=minioadmin \                                         │
+# │    -e MINIO_SECRET_KEY=minioadmin123 \                                      │
+# │    -e GIT_SHA=$(git rev-parse HEAD) \                                       │
+# │    categorizer-retrain                                                      │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# Mounted path         | What it provides
+# ---------------------|--------------------------------------------------
+# /app/training        | retrain.py, train.py, evaluate.py, utils.py,
+#                      | models/, config.yaml  (and any local overrides)
+# /app/data            | raw CSV datasets referenced by config.yaml
+
+ENTRYPOINT ["python", "retrain.py", "--config", "config.yaml"]
