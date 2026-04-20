@@ -69,8 +69,6 @@ spec:
                           project: proj06
                       spec:
                         restartPolicy: Never
-                        nodeSelector:
-                          proj06-role: workers
                         containers:
                           - name: training-cpu
                             image: ghcr.io/riyampatel2001/mlops-project-proj06/training-cpu:latest
