@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 from unittest import mock
 
@@ -51,6 +52,19 @@ class MetricsTests(unittest.TestCase):
         metrics.reset_metrics_for_tests()
         self.addCleanup(metrics.reset_metrics_for_tests)
 
+    def assert_metric_with_labels(
+        self,
+        rendered: str,
+        metric: str,
+        value: str,
+        **labels: str,
+    ) -> None:
+        pattern = re.escape(metric) + r"\{"
+        for key, label_value in labels.items():
+            pattern += r'[^}]*' + re.escape(f'{key}="{label_value}"')
+        pattern += r"[^}]*\}\s+" + re.escape(value)
+        self.assertRegex(rendered, pattern)
+
     @mock.patch("app.metrics.db.pool_available", return_value=True)
     @mock.patch("app.metrics.layer1.get_router_snapshot", return_value=_snapshot())
     def test_classification_metrics_capture_distribution_and_failures(
@@ -84,31 +98,66 @@ class MetricsTests(unittest.TestCase):
         rendered = metrics.render_metrics().decode("utf-8")
 
         self.assertIn("serving_requests_total 3.0", rendered)
-        self.assertIn(
-            'serving_classify_requests_total{source="layer1",request_mode="interactive",model_tier="good",model_version="mlflow-run:good/minilm",status="success"} 1.0',
+        self.assert_metric_with_labels(
             rendered,
+            "serving_classify_requests_total",
+            "1.0",
+            source="layer1",
+            request_mode="interactive",
+            model_tier="good",
+            model_version="mlflow-run:good/minilm",
+            status="success",
         )
-        self.assertIn(
-            'serving_classify_requests_total{source="unknown",request_mode="interactive",model_tier="unknown",model_version="unknown",status="error"} 1.0',
+        self.assert_metric_with_labels(
             rendered,
+            "serving_classify_requests_total",
+            "1.0",
+            source="unknown",
+            request_mode="interactive",
+            model_tier="unknown",
+            model_version="unknown",
+            status="error",
         )
-        self.assertIn(
-            'serving_prediction_outputs_total{source="layer1",request_mode="interactive",model_tier="good",model_version="mlflow-run:good/minilm",category_group="Groceries"} 1.0',
+        self.assert_metric_with_labels(
             rendered,
+            "serving_prediction_outputs_total",
+            "1.0",
+            source="layer1",
+            request_mode="interactive",
+            model_tier="good",
+            model_version="mlflow-run:good/minilm",
+            category_group="Groceries",
         )
-        self.assertIn(
-            'serving_prediction_outputs_total{source="layer2",request_mode="bulk",model_tier="layer2",model_version="layer2",category_group="__custom__"} 1.0',
+        self.assert_metric_with_labels(
             rendered,
+            "serving_prediction_outputs_total",
+            "1.0",
+            source="layer2",
+            request_mode="bulk",
+            model_tier="layer2",
+            model_version="layer2",
+            category_group="__custom__",
         )
-        self.assertIn(
-            'serving_prediction_confidence_bucket{source="layer1",request_mode="interactive",model_tier="good",model_version="mlflow-run:good/minilm",le="0.6"} 1.0',
+        self.assert_metric_with_labels(
             rendered,
+            "serving_prediction_confidence_bucket",
+            "1.0",
+            source="layer1",
+            request_mode="interactive",
+            model_tier="good",
+            model_version="mlflow-run:good/minilm",
+            le="0.6",
         )
         self.assertIn("serving_router_request_rate_rps 1.4", rendered)
         self.assertIn("serving_db_connected 1.0", rendered)
-        self.assertIn(
-            'serving_model_info{tier="good",model="minilm",kind="hf",version="mlflow-run:good/minilm"} 1.0',
+        self.assert_metric_with_labels(
             rendered,
+            "serving_model_info",
+            "1.0",
+            tier="good",
+            model="minilm",
+            kind="hf",
+            version="mlflow-run:good/minilm",
         )
 
     @mock.patch("app.metrics.db.pool_available", return_value=False)
@@ -138,29 +187,51 @@ class MetricsTests(unittest.TestCase):
 
         rendered = metrics.render_metrics().decode("utf-8")
 
-        self.assertIn(
-            'serving_feedback_total{source="layer1",outcome="confirmed",status="success"} 1.0',
+        self.assert_metric_with_labels(
             rendered,
+            "serving_feedback_total",
+            "1.0",
+            source="layer1",
+            outcome="confirmed",
+            status="success",
         )
-        self.assertIn(
-            'serving_feedback_total{source="layer1",outcome="corrected",status="success"} 1.0',
+        self.assert_metric_with_labels(
             rendered,
+            "serving_feedback_total",
+            "1.0",
+            source="layer1",
+            outcome="corrected",
+            status="success",
         )
-        self.assertIn(
-            'serving_feedback_total{source="layer2",outcome="error",status="error"} 1.0',
+        self.assert_metric_with_labels(
             rendered,
+            "serving_feedback_total",
+            "1.0",
+            source="layer2",
+            outcome="error",
+            status="error",
         )
-        self.assertIn(
-            'serving_feedback_original_confidence_bucket{source="layer1",outcome="corrected",le="0.5"} 1.0',
+        self.assert_metric_with_labels(
             rendered,
+            "serving_feedback_original_confidence_bucket",
+            "1.0",
+            source="layer1",
+            outcome="corrected",
+            le="0.5",
         )
-        self.assertIn(
-            'serving_suggestion_responses_total{action="accept",status="success"} 1.0',
+        self.assert_metric_with_labels(
             rendered,
+            "serving_suggestion_responses_total",
+            "1.0",
+            action="accept",
+            status="success",
         )
-        self.assertIn(
-            'serving_suggestion_responses_total{action="dismiss",status="error"} 1.0',
+        self.assert_metric_with_labels(
             rendered,
+            "serving_suggestion_responses_total",
+            "1.0",
+            action="dismiss",
+            status="error",
         )
         self.assertIn("serving_db_connected 0.0", rendered)
 
