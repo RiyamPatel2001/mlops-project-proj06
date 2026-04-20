@@ -48,7 +48,7 @@ def make_minio_client(cfg: dict) -> Minio:
     return Minio(
         endpoint,
         access_key=os.environ.get("MINIO_ACCESS_KEY", "minioadmin"),
-        secret_key=os.environ.get("MINIO_SECRET_KEY", "minioadmin"),
+        secret_key=os.environ.get("MINIO_SECRET_KEY", "minioadmin123"),
         secure=secure,
     )
 
