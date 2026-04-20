@@ -11,7 +11,7 @@ data:
   train_csv: "http://10.43.4.193:9000/data/processed/train.csv"   # kept for reference
 
 layer1:
-  model_uri: "runs:/27d6660d579c4bc2903692485cb1569e/fasttext.bin"             # replace with your fastText MLflow run URI
+  model_uri: "runs:/e99c0f7fe5554fd584c9efd2162f5572/fasttext.bin"             # replace with your fastText MLflow run URI
   model_version: "fasttext-v1"
 
 layer2:
