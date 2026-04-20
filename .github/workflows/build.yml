@@ -1,0 +1,122 @@
+name: Build and Push Images
+
+on:
+  push:
+    branches: [refactor-project]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  REPO: riyampatel2001/mlops-project-proj06
+
+jobs:
+
+  build-serving:
+    name: Serving (transaction-classifier)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: serving
+          file: serving/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO }}/transaction-classifier:latest
+            ghcr.io/${{ env.REPO }}/transaction-classifier:${{ github.sha }}
+
+  build-training-cpu:
+    name: Training (CPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: training
+          file: training/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO }}/training-cpu:latest
+            ghcr.io/${{ env.REPO }}/training-cpu:${{ github.sha }}
+
+  build-batch-pipeline:
+    name: Data Pipeline (batch)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: data_pipeline/batch_pipeline
+          file: data_pipeline/batch_pipeline/Dockerfile.batch
+          push: true
+          tags: ghcr.io/${{ env.REPO }}/batch-pipeline:latest
+
+  build-data-generator:
+    name: Data Pipeline (generator)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: data_pipeline/data_generator
+          file: data_pipeline/data_generator/Dockerfile.generator
+          push: true
+          tags: ghcr.io/${{ env.REPO }}/data-generator:latest
+
+  build-ingestion:
+    name: Data Pipeline (ingestion)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: data_pipeline/ingestion
+          file: data_pipeline/ingestion/Dockerfile.ingest
+          push: true
+          tags: ghcr.io/${{ env.REPO }}/data-ingestion:latest
+
+  build-layer2:
+    name: Model Pipeline (layer2 store)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: model_pipeline/layer2/Dockerfile
+          push: true
+          tags: ghcr.io/${{ env.REPO }}/layer2-store:latest
+
