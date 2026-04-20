@@ -20,7 +20,7 @@ import tempfile
 import mlflow
 import numpy as np
 import pandas as pd
-from sklearn.metrics import classification_report, f1_score
+from sklearn.metrics import accuracy_score, classification_report, f1_score
 
 
 def evaluate_and_log(
@@ -59,6 +59,7 @@ def evaluate_and_log(
     preds = clf.predict(X_vec)
 
     # ── 3. Aggregate metrics ──────────────────────────────────────────────────
+    accuracy    = accuracy_score(y_val, preds)
     weighted_f1 = f1_score(y_val, preds, average="weighted")
     macro_f1    = f1_score(y_val, preds, average="macro")
 
@@ -82,6 +83,7 @@ def evaluate_and_log(
 
     # ── 5. MLflow — aggregate metrics ────────────────────────────────────────
     model_name = config["model"]   # read-only, used for console output only
+    mlflow.log_metric("accuracy", accuracy)
     mlflow.log_metric("weighted_f1", weighted_f1)
     mlflow.log_metric("macro_f1",    macro_f1)
 
@@ -108,6 +110,7 @@ def evaluate_and_log(
     # ── 8. Console summary ────────────────────────────────────────────────────
     print(f"\n{'─'*55}")
     print(f"  Model          : {model_name}")
+    print(f"  Accuracy       : {accuracy:.4f}")
     print(f"  Weighted F1    : {weighted_f1:.4f}")
     print(f"  Macro F1       : {macro_f1:.4f}")
     print(f"{'─'*55}")
@@ -129,4 +132,8 @@ def evaluate_and_log(
     if not passed:
         raise SystemExit(1)
 
-    return {"weighted_f1": weighted_f1, "macro_f1": macro_f1}
+    return {
+        "accuracy": accuracy,
+        "weighted_f1": weighted_f1,
+        "macro_f1": macro_f1,
+    }

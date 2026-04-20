@@ -34,19 +34,12 @@ spec:
                 secretKeyRef:
                   name: mlflow-uri
                   key: uri
-            - name: DATA_PATH
-              value: "/data/processed"
-            - name: MODEL_OUTPUT_PATH
-              value: "/models"
+            - name: MODEL_REGISTRY_PATH
+              value: "/models/layer1_registry.json"
           volumeMounts:
-            - name: data-storage
-              mountPath: /data
             - name: model-storage
               mountPath: /models
       volumes:
-        - name: data-storage
-          persistentVolumeClaim:
-            claimName: data-pvc
         - name: model-storage
           persistentVolumeClaim:
             claimName: serving-models-pvc

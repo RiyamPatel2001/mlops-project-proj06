@@ -18,6 +18,7 @@ Routing is no longer a single global switch for the whole server. Instead:
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -31,6 +32,8 @@ from app.config import (
     LABEL_CLASSES,
     LAYER1_HF_MAX_LENGTH,
     MLFLOW_TRACKING_URI,
+    MODEL_REGISTRY_PATH,
+    MODEL_REGISTRY_REFRESH_SECONDS,
     ROUTER_BATCH_STICKY_TTL_SECONDS,
     ROUTER_OVERLOAD_INFLIGHT_THRESHOLD,
     ROUTER_OVERLOAD_SUSTAIN_SECONDS,
@@ -538,39 +541,126 @@ def _resolve_label(pred_label: object) -> str:
     return "Other"
 
 
-_registry = MultiModelRegistry(
-    configs=[
-        TierConfig(
-            tier=Tier.GOOD,
-            name=TIER_GOOD_MODEL_NAME,
-            kind=TIER_GOOD_MODEL_KIND,
-            run_id=TIER_GOOD_RUN_ID,
-            artifact_path=TIER_GOOD_ARTIFACT_PATH,
-        ),
-        TierConfig(
-            tier=Tier.FAST,
-            name=TIER_FAST_MODEL_NAME,
-            kind=TIER_FAST_MODEL_KIND,
-            run_id=TIER_FAST_RUN_ID,
-            artifact_path=TIER_FAST_ARTIFACT_PATH,
-        ),
-        TierConfig(
-            tier=Tier.CHEAP,
-            name=TIER_CHEAP_MODEL_NAME,
-            kind=TIER_CHEAP_MODEL_KIND,
-            run_id=TIER_CHEAP_RUN_ID,
-            artifact_path=TIER_CHEAP_ARTIFACT_PATH,
-        ),
-    ],
-    request_window_seconds=ROUTER_REQUEST_WINDOW_SECONDS,
-    batch_sticky_ttl_seconds=ROUTER_BATCH_STICKY_TTL_SECONDS,
-    overload_inflight_threshold=ROUTER_OVERLOAD_INFLIGHT_THRESHOLD,
-    overload_sustain_seconds=ROUTER_OVERLOAD_SUSTAIN_SECONDS,
-)
+_DEFAULT_TIER_CONFIGS = {
+    Tier.GOOD: TierConfig(
+        tier=Tier.GOOD,
+        name=TIER_GOOD_MODEL_NAME,
+        kind=TIER_GOOD_MODEL_KIND,
+        run_id=TIER_GOOD_RUN_ID,
+        artifact_path=TIER_GOOD_ARTIFACT_PATH,
+    ),
+    Tier.FAST: TierConfig(
+        tier=Tier.FAST,
+        name=TIER_FAST_MODEL_NAME,
+        kind=TIER_FAST_MODEL_KIND,
+        run_id=TIER_FAST_RUN_ID,
+        artifact_path=TIER_FAST_ARTIFACT_PATH,
+    ),
+    Tier.CHEAP: TierConfig(
+        tier=Tier.CHEAP,
+        name=TIER_CHEAP_MODEL_NAME,
+        kind=TIER_CHEAP_MODEL_KIND,
+        run_id=TIER_CHEAP_RUN_ID,
+        artifact_path=TIER_CHEAP_ARTIFACT_PATH,
+    ),
+}
+
+_registry_guard = threading.RLock()
+_registry: MultiModelRegistry | None = None
+_registry_file_mtime: float | None = None
+_last_registry_check_at: float = 0.0
+
+
+def _load_registry_overrides() -> dict[str, dict[str, str]]:
+    registry_path = Path(MODEL_REGISTRY_PATH)
+    if not registry_path.exists():
+        return {}
+
+    with registry_path.open() as handle:
+        payload = json.load(handle)
+
+    tiers = payload.get("tiers", {})
+    return tiers if isinstance(tiers, dict) else {}
+
+
+def _build_tier_configs() -> list[TierConfig]:
+    overrides = _load_registry_overrides()
+    tier_configs: list[TierConfig] = []
+
+    for tier in (Tier.GOOD, Tier.FAST, Tier.CHEAP):
+        default_cfg = _DEFAULT_TIER_CONFIGS[tier]
+        override = overrides.get(tier.value, {})
+        tier_configs.append(
+            TierConfig(
+                tier=tier,
+                name=str(override.get("model_name", default_cfg.name)),
+                kind=str(override.get("model_kind", default_cfg.kind)).lower(),
+                run_id=str(override.get("run_id", default_cfg.run_id)),
+                artifact_path=str(
+                    override.get("artifact_path", default_cfg.artifact_path)
+                ),
+            )
+        )
+
+    return tier_configs
+
+
+def _build_registry() -> MultiModelRegistry:
+    return MultiModelRegistry(
+        configs=_build_tier_configs(),
+        request_window_seconds=ROUTER_REQUEST_WINDOW_SECONDS,
+        batch_sticky_ttl_seconds=ROUTER_BATCH_STICKY_TTL_SECONDS,
+        overload_inflight_threshold=ROUTER_OVERLOAD_INFLIGHT_THRESHOLD,
+        overload_sustain_seconds=ROUTER_OVERLOAD_SUSTAIN_SECONDS,
+    )
+
+
+def _current_registry_mtime() -> float | None:
+    registry_path = Path(MODEL_REGISTRY_PATH)
+    if not registry_path.exists():
+        return None
+    return registry_path.stat().st_mtime
+
+
+def _reload_registry_if_needed(force: bool = False) -> None:
+    global _last_registry_check_at
+    global _registry
+    global _registry_file_mtime
+
+    now = time.monotonic()
+    with _registry_guard:
+        if (
+            not force
+            and MODEL_REGISTRY_REFRESH_SECONDS > 0
+            and now - _last_registry_check_at < MODEL_REGISTRY_REFRESH_SECONDS
+        ):
+            return
+        _last_registry_check_at = now
+        current_mtime = _current_registry_mtime()
+        if not force and _registry is not None and current_mtime == _registry_file_mtime:
+            return
+
+        next_registry = _build_registry()
+        next_registry.load_all()
+        _registry = next_registry
+        _registry_file_mtime = current_mtime
+        logger.info(
+            "Reloaded Layer 1 registry from %s (mtime=%s)",
+            MODEL_REGISTRY_PATH,
+            current_mtime,
+        )
+
+
+def _active_registry() -> MultiModelRegistry:
+    _reload_registry_if_needed()
+    with _registry_guard:
+        if _registry is None:
+            raise RuntimeError("Layer 1 model registry has not been loaded")
+        return _registry
 
 
 def load_model() -> None:
-    _registry.load_all()
+    _reload_registry_if_needed(force=True)
 
 
 def predict(
@@ -578,12 +668,12 @@ def predict(
     request_mode: str = RequestMode.INTERACTIVE.value,
     batch_id: Optional[str] = None,
 ) -> PredictionResult:
-    return _registry.predict(text, request_mode=request_mode, batch_id=batch_id)
+    return _active_registry().predict(text, request_mode=request_mode, batch_id=batch_id)
 
 
 def get_model_version() -> str:
-    return _registry.get_model_version()
+    return _active_registry().get_model_version()
 
 
 def get_router_snapshot() -> RouterSnapshot:
-    return _registry.get_router_snapshot()
+    return _active_registry().get_router_snapshot()

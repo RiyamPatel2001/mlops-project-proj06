@@ -66,6 +66,10 @@ spec:
               value: "/app/models/fasttext/label_map.json"
             - name: MODEL_VERSION
               value: "v1"
+            - name: MODEL_REGISTRY_PATH
+              value: "/app/models/layer1_registry.json"
+            - name: MODEL_REGISTRY_REFRESH_SECONDS
+              value: "30"
           resources:
             requests:
               cpu: "200m"

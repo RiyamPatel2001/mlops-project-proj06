@@ -39,3 +39,5 @@ spec:
               value: "minioadmin123"
             - name: MINIO_BUCKET
               value: "data"
+            - name: MINIO_PREFIX
+              value: "data/retraining"
