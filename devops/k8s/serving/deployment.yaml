@@ -50,9 +50,6 @@ spec:
             - name: http
               containerPort: 8000
               protocol: TCP
-          envFrom:
-            - secretRef:
-                name: proj06-env
           env:
             - name: MODEL_TYPE
               value: "fasttext"
@@ -74,8 +71,6 @@ spec:
           volumeMounts:
             - name: serving-models
               mountPath: /app/models
-            - name: artifacts
-              mountPath: /app/artifacts
           readinessProbe:
             httpGet:
               path: /health
@@ -94,7 +89,4 @@ spec:
         - name: serving-models
           persistentVolumeClaim:
             claimName: serving-models-pvc
-        - name: artifacts
-          persistentVolumeClaim:
-            claimName: artifacts-pvc
       restartPolicy: Always

@@ -25,9 +25,6 @@ spec:
             limits:
               cpu: "4000m"
               memory: "8Gi"
-          envFrom:
-            - secretRef:
-                name: proj06-env
           env:
             - name: MLFLOW_TRACKING_URI
               valueFrom:
