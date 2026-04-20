@@ -5,7 +5,7 @@ on:
     branches: [refactor-project]
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -140,4 +140,45 @@ jobs:
             ghcr.io/${{ env.REPO }}/actual-custom:latest
             ghcr.io/${{ env.REPO }}/actual-custom:${{ github.sha }}
           build-args: BUILD_NODE_MEMORY_MB=3072
+
+  # Pin SHA-tagged images into deployment manifests so Argo detects a real
+  # diff and rolls pods automatically — no manual kubectl rollout restart needed.
+  # Runs after both serving and actualbudget builds finish.
+  # [skip ci] prevents this commit from re-triggering the workflow.
+  pin-images:
+    name: Pin image SHAs in manifests
+    runs-on: ubuntu-latest
+    needs: [build-serving, build-actualbudget]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor-project
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update deployment manifests with exact SHA tags
+        run: |
+          SHA="${{ github.sha }}"
+          REPO="${{ env.REPO }}"
+
+          # Pin transaction-classifier
+          sed -i "s|ghcr.io/${REPO}/transaction-classifier:[^ ]*|ghcr.io/${REPO}/transaction-classifier:${SHA}|g" \
+            devops/k8s/serving/deployment.yaml
+
+          # Pin actual-custom
+          sed -i "s|ghcr.io/${REPO}/actual-custom:[^ ]*|ghcr.io/${REPO}/actual-custom:${SHA}|g" \
+            devops/k8s/actualbudget/deployment.yaml
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          # Pull latest HEAD first (other jobs may have pushed concurrently)
+          git pull --rebase origin refactor-project
+
+          git add devops/k8s/serving/deployment.yaml devops/k8s/actualbudget/deployment.yaml
+
+          if git diff --cached --quiet; then
+            echo "No image tag changes to commit."
+          else
+            git commit -m "chore(deploy): pin images to ${SHA} [skip ci]"
+            git push origin refactor-project
+          fi
 
