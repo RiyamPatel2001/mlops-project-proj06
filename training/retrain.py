@@ -358,13 +358,13 @@ def _production_accuracy(
 
 
 def _should_promote(
-    candidate_accuracy: float,
-    production_accuracy: float | None,
+    candidate_f1: float,
+    production_f1: float | None,
     cfg: dict,
 ) -> bool:
-    if production_accuracy is None:
+    if production_f1 is None:
         return True
-    return candidate_accuracy > production_accuracy + _minimum_accuracy_delta(cfg)
+    return candidate_f1 > production_f1 + _minimum_accuracy_delta(cfg)
 
 
 def _candidate_reference(
@@ -381,7 +381,6 @@ def _candidate_reference(
         "run_id": run_id,
         "artifact_path": artifact_path,
         "model_uri": f"runs:/{run_id}/{artifact_path}",
-        "accuracy": round(float(metrics["accuracy"]), 6),
         "weighted_f1": round(float(metrics["weighted_f1"]), 6),
         "macro_f1": round(float(metrics["macro_f1"]), 6),
         "dataset_version": dataset_meta["version"],
@@ -501,18 +500,13 @@ def main() -> None:
         # ── Step 6: Summary ───────────────────────────────────────────────────
         print(
             f"\n{'═'*55}\n"
-            f"  Dataset        : {dataset_filename}\n"
-            f"  Model          : {model_name}\n"
+            f"  Dataset        : {dataset_meta['version']}\n"
+            f"  Model          : {cfg['model']}\n"
             f"  Weighted F1    : {metrics['weighted_f1']:.4f}\n"
             f"  Macro F1       : {metrics['macro_f1']:.4f}\n"
             f"  Quality gate   : {quality_gate}\n"
             f"{'═'*55}"
         )
-
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-            print(f"[retrain] Cleaned up temp file {tmp_path}")
 
 
 if __name__ == "__main__":
