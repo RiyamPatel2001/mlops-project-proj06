@@ -32,6 +32,8 @@ spec:
         app: mlflow-proj06
         project: proj06
     spec:
+      nodeSelector:
+        proj06-role: services
       containers:
         - name: mlflow
           image: ghcr.io/mlflow/mlflow:v2.14.1
@@ -81,10 +83,10 @@ spec:
           resources:
             requests:
               cpu: "300m"
-              memory: "512Mi"
+              memory: "768Mi"
             limits:
               cpu: "800m"
-              memory: "1Gi"
+              memory: "2Gi"
           readinessProbe:
             httpGet:
               path: /health
