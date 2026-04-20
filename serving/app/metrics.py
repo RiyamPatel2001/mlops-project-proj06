@@ -79,6 +79,58 @@ class _RuntimeMetricsCollector:
     def __init__(self, started_at: Callable[[], float]) -> None:
         self._started_at = started_at
 
+    def describe(self):
+        yield GaugeMetricFamily(
+            "serving_uptime_seconds",
+            "Uptime of the serving process in seconds",
+        )
+        yield GaugeMetricFamily(
+            "serving_router_request_rate_rps",
+            "Rolling request rate reported by the Layer 1 router",
+        )
+        yield GaugeMetricFamily(
+            "serving_router_inflight_requests",
+            "Current in-flight requests across all Layer 1 runtimes",
+        )
+        yield GaugeMetricFamily(
+            "serving_router_active_batches",
+            "Current sticky bulk batches tracked by the router",
+        )
+        yield GaugeMetricFamily(
+            "serving_router_overload_state",
+            "Current router overload state",
+            labels=["state"],
+        )
+        yield GaugeMetricFamily(
+            "serving_router_default_tier",
+            "Default routing tier for each request mode",
+            labels=["mode", "tier"],
+        )
+        yield GaugeMetricFamily(
+            "serving_router_last_tier",
+            "Tier chosen for the most recently routed request",
+            labels=["mode", "tier"],
+        )
+        yield GaugeMetricFamily(
+            "serving_model_ready",
+            "Whether a model runtime is loaded and ready",
+            labels=["tier", "model", "kind", "version"],
+        )
+        yield GaugeMetricFamily(
+            "serving_model_inflight",
+            "In-flight request count for each model runtime",
+            labels=["tier", "model", "kind", "version"],
+        )
+        yield GaugeMetricFamily(
+            "serving_model_info",
+            "Info metric for model runtimes and versions",
+            labels=["tier", "model", "kind", "version"],
+        )
+        yield GaugeMetricFamily(
+            "serving_db_connected",
+            "Whether the async Postgres pool is available",
+        )
+
     def collect(self):
         snapshot = layer1.get_router_snapshot()
 
@@ -178,7 +230,7 @@ class _RuntimeMetricsCollector:
 class MetricsStore:
     def __init__(self) -> None:
         self._started_at = time.time()
-        self.registry = CollectorRegistry(auto_describe=True)
+        self.registry = CollectorRegistry()
 
         ProcessCollector(registry=self.registry)
         PlatformCollector(registry=self.registry)
