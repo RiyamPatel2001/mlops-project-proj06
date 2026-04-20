@@ -182,8 +182,9 @@ def run_pipeline(feedback_rows, version=None):
     print(f"[batch]   Clean candidates: {len(clean):,}")
 
     # Minimum records gate
-    if len(clean) < 100:
-        print(f"[batch] ERROR: Only {len(clean)} clean records — minimum is 100. Exiting.")
+    MIN_RECORDS = int(os.environ.get("MIN_RECORDS", 100))
+    if len(clean) < MIN_RECORDS:
+        print(f"[batch] ERROR: Only {len(clean)} clean records — minimum is {MIN_RECORDS}. Exiting.")
         return
 
     # Step 3: Class distribution check
