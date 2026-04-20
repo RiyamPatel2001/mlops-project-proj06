@@ -3,21 +3,30 @@ model_pipeline/evaluate.py
 
 Batch evaluation of the full Layer 1 + Layer 2 pipeline.
 
-Uses the same 70/30 temporal per-user split as build_store.py — the store is
-built from the first 70% of each user's history; evaluation runs on the last 30%.
+Default mode: mirrors the 70/30 temporal per-user split from build_store.py —
+the store is built from the first 70% of each user's history; evaluation runs
+on the last 30%.
+
+With --eval-csv: loads a pre-split evaluation CSV directly from MinIO (e.g.
+processed/eval_cex.csv or processed/eval_moneydata.csv), skipping the split.
+Rows with categories outside the training label set are dropped and counted.
 
 Metrics logged to MLflow:
   - weighted_f1, macro_f1  (overall)
   - layer2_routing_pct      (% of transactions routed through Layer 2)
   - per-source weighted F1  (layer1_weighted_f1, layer2_weighted_f1)
+  - dropped_rows            (only when --eval-csv is used)
   - classification report + per-row results CSV as artifacts
 
 Usage (from project root):
     python -m model_pipeline.evaluate
     python -m model_pipeline.evaluate --config model_pipeline/layer2/config.yaml
+    python -m model_pipeline.evaluate --eval-csv processed/eval_moneydata.csv \
+        --run-name fasttext-layer2-realworld --experiment-suffix _moneydata
 """
 
 import argparse
+import io
 import json
 import os
 import pickle
@@ -29,7 +38,12 @@ import pandas as pd
 import yaml
 from sklearn.metrics import classification_report, f1_score
 
-from model_pipeline.layer2.build_store import first_n_percent_per_user, load_csv
+from model_pipeline.layer2.build_store import (
+    EXTRA_COLS,
+    first_n_percent_per_user,
+    load_csv,
+    make_minio_client,
+)
 from model_pipeline.layer2.embedder import Embedder
 from model_pipeline.layer2.matcher import get_top_k, majority_vote
 
@@ -37,12 +51,32 @@ from model_pipeline.layer2.matcher import get_top_k, majority_vote
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="model_pipeline/layer2/config.yaml")
+    parser.add_argument(
+        "--eval-csv", default=None,
+        help="MinIO object path of a pre-split eval CSV (e.g. processed/eval_moneydata.csv). "
+             "Uses all rows as test data; skips the 70/30 split.",
+    )
+    parser.add_argument("--run-name", default="layer2-eval")
+    parser.add_argument(
+        "--experiment-suffix", default="",
+        help="Appended to experiment_name from config (e.g. _moneydata).",
+    )
     return parser.parse_args()
 
 
 def load_config(path: str) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
+
+
+def _load_eval_csv(cfg: dict, object_path: str) -> pd.DataFrame:
+    client = make_minio_client(cfg)
+    response = client.get_object(cfg["minio"]["bucket"], object_path)
+    df = pd.read_csv(io.BytesIO(response.read()))
+    response.close()
+    response.release_conn()
+    df.drop(columns=[c for c in EXTRA_COLS if c in df.columns], inplace=True)
+    return df
 
 
 def _load_layer1(cfg: dict):
@@ -107,16 +141,33 @@ def main() -> None:
     cfg  = load_config(args.config)
     l2   = cfg["layer2"]
 
-    # ── Data: mirror the same 70/30 split as build_store ──────────────────────
-    print(f"Loading data from MinIO ...")
-    df       = load_csv(cfg)
-    df_store = first_n_percent_per_user(df, pct=0.70)
-    df_test  = df[~df["transaction_id"].isin(df_store["transaction_id"])].copy()
-    print(f"Split: {len(df_store):,} store rows  /  {len(df_test):,} test rows")
+    # ── Data ──────────────────────────────────────────────────────────────────
+    print("Loading data from MinIO ...")
+    if args.eval_csv:
+        df_test = _load_eval_csv(cfg, args.eval_csv)
+        print(f"Loaded {len(df_test):,} rows from {args.eval_csv}.")
+    else:
+        df       = load_csv(cfg)
+        df_store = first_n_percent_per_user(df, pct=0.70)
+        df_test  = df[~df["transaction_id"].isin(df_store["transaction_id"])].copy()
+        print(f"Split: {len(df_store):,} store rows  /  {len(df_test):,} test rows")
 
     # ── Load artifacts ─────────────────────────────────────────────────────────
     print("Loading Layer 1 model from MLflow ...")
     layer1_model = _load_layer1(cfg)
+
+    # ── Drop rows with categories outside the training label set ──────────────
+    dropped_rows = 0
+    if args.eval_csv:
+        known_labels = {
+            lbl.replace("__label__", "").replace("_", " ")
+            for lbl in layer1_model.get_labels()
+        }
+        before   = len(df_test)
+        df_test  = df_test[df_test["category"].isin(known_labels)].reset_index(drop=True)
+        dropped_rows = before - len(df_test)
+        if dropped_rows:
+            print(f"Dropped {dropped_rows} rows with unknown categories. Remaining: {len(df_test):,}.")
 
     embedder = Embedder(model_name=l2["model_name"], max_length=l2.get("max_length", 128))
 
@@ -171,15 +222,24 @@ def main() -> None:
     print(report_str)
 
     # ── MLflow ─────────────────────────────────────────────────────────────────
+    experiment_name = cfg["mlflow"]["experiment_name"] + args.experiment_suffix
     mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"].strip())
-    mlflow.set_experiment(cfg["mlflow"]["experiment_name"])
+    mlflow.set_experiment(experiment_name)
 
-    with mlflow.start_run(run_name="layer2-eval"):
+    with mlflow.start_run(run_name=args.run_name):
+        git_sha = os.environ.get("GIT_SHA", "")
+        if git_sha:
+            mlflow.set_tag("git_sha", git_sha)
+        if args.eval_csv:
+            mlflow.set_tag("dataset", os.path.basename(args.eval_csv))
+
         mlflow.log_metric("weighted_f1",        weighted_f1)
         mlflow.log_metric("macro_f1",           macro_f1)
         mlflow.log_metric("layer2_routing_pct", round(pct_l2, 2))
         mlflow.log_metric("n_layer1_routed",    n_l1)
         mlflow.log_metric("n_layer2_routed",    n_l2)
+        if args.eval_csv:
+            mlflow.log_metric("dropped_rows", dropped_rows)
         if "layer1_weighted_f1" in report_dict:
             mlflow.log_metric("layer1_weighted_f1", report_dict["layer1_weighted_f1"])
         if "layer2_weighted_f1" in report_dict:
@@ -190,6 +250,8 @@ def main() -> None:
         mlflow.log_param("min_history",           l2["min_history"])
         mlflow.log_param("layer1_model_uri",      cfg["layer1"]["model_uri"])
         mlflow.log_param("layer1_model_name",     cfg["layer1"].get("model_version", "unknown"))
+        if args.eval_csv:
+            mlflow.log_param("eval_csv", args.eval_csv)
         layer1_run_id = cfg["layer1"]["model_uri"].split("/")[1] if cfg["layer1"]["model_uri"].startswith("runs:/") else "unknown"
         mlflow.log_param("layer1_run_id",         layer1_run_id)
 
