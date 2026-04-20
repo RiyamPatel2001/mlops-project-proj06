@@ -27,9 +27,9 @@ spec:
               imagePullPolicy: Always
               command: ['python', '-m', 'model_pipeline.layer3.pipeline']
               envFrom:
-            - secretRef:
-                name: proj06-env
-          env:
+                - secretRef:
+                    name: proj06-env
+              env:
                 - name: MINIO_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
