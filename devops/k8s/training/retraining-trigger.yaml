@@ -21,6 +21,10 @@ spec:
             app: retraining-trigger
             project: proj06
         spec:
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
           restartPolicy: Never
           containers:
             - name: retraining
