@@ -13,6 +13,176 @@ data:
         access: proxy
         isDefault: true
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: mlops
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: proj06
+        folder: proj06
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: mlops
+data:
+  platform.json: |
+    {
+      "id": null,
+      "title": "proj06 — MLOps Platform",
+      "tags": ["proj06", "mlops"],
+      "timezone": "utc",
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Classifier Status",
+          "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+          "targets": [
+            {
+              "expr": "up{job=\"transaction-classifier\"}",
+              "legendFormat": "classifier"
+            }
+          ],
+          "options": {
+            "colorMode": "background",
+            "reduceOptions": {"calcs": ["lastNotNull"]}
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+              ],
+              "thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 1, "color": "green"}]}
+            }
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "MLflow Status",
+          "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+          "targets": [
+            {
+              "expr": "up{job=\"mlflow\"}",
+              "legendFormat": "mlflow"
+            }
+          ],
+          "options": {
+            "colorMode": "background",
+            "reduceOptions": {"calcs": ["lastNotNull"]}
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+              ],
+              "thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 1, "color": "green"}]}
+            }
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "DB Connected",
+          "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+          "targets": [
+            {"expr": "serving_db_connected", "legendFormat": "db"}
+          ],
+          "options": {
+            "colorMode": "background",
+            "reduceOptions": {"calcs": ["lastNotNull"]}
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {"type": "value", "options": {"0": {"text": "DISCONNECTED", "color": "red"}, "1": {"text": "CONNECTED", "color": "green"}}}
+              ],
+              "thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 1, "color": "green"}]}
+            }
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Total Classify Requests",
+          "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+          "targets": [
+            {"expr": "serving_requests_total", "legendFormat": "requests"}
+          ],
+          "options": {
+            "colorMode": "value",
+            "reduceOptions": {"calcs": ["lastNotNull"]}
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "thresholds": {"steps": [{"value": 0, "color": "blue"}]}
+            }
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Classify Request Rate (req/s)",
+          "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+          "targets": [
+            {
+              "expr": "rate(serving_requests_total[2m])",
+              "legendFormat": "req/s"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {"mode": "palette-classic"},
+              "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 10, "color": "red"}]}
+            }
+          }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Prometheus Scrape Success",
+          "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+          "targets": [
+            {"expr": "up{job=~\"transaction-classifier|mlflow|minio\"}", "legendFormat": "{{job}}"}
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0, "max": 1,
+              "color": {"mode": "palette-classic"}
+            }
+          }
+        },
+        {
+          "id": 7,
+          "type": "text",
+          "title": "Active Model Version",
+          "gridPos": {"x": 0, "y": 12, "w": 24, "h": 3},
+          "options": {
+            "mode": "markdown",
+            "content": "Model version is shown in the `serving_model_info` metric — query Prometheus: `serving_model_info`"
+          }
+        }
+      ],
+      "time": {"from": "now-3h", "to": "now"},
+      "timepicker": {}
+    }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -42,6 +212,8 @@ spec:
               value: "mlops1234"
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: "/var/lib/grafana/dashboards/platform.json"
           resources:
             requests:
               cpu: "100m"
@@ -52,10 +224,20 @@ spec:
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
       volumes:
         - name: datasources
           configMap:
             name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboards-provider
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
 ---
 apiVersion: v1
 kind: Service
