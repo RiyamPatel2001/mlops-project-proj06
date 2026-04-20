@@ -21,6 +21,8 @@ metadata:
     project: proj06
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: mlflow-proj06
@@ -78,10 +80,10 @@ spec:
                   key: secretkey
           resources:
             requests:
-              cpu: "500m"
+              cpu: "300m"
               memory: "512Mi"
             limits:
-              cpu: "1000m"
+              cpu: "800m"
               memory: "1Gi"
           readinessProbe:
             httpGet:
