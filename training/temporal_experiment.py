@@ -1,171 +1,259 @@
 """
 temporal_experiment.py
 ──────────────────────
-Time-based generalization experiment for the Layer-1 categorizer.
+Temporal generalisation experiment: train on 2022 data, evaluate on
+2024 synthetic and real-world data to measure distribution shift.
 
-Splits the dataset into rolling monthly windows and tests whether a model
-trained on earlier transactions generalizes to later ones — the key signal
-for detecting data drift before it hits production.
-
-For each fold:
-  - Train  on all transactions  before  cutoff_date
-  - Test   on transactions in  [cutoff_date, cutoff_date + window_months)
-  - Log metrics + fold metadata as a nested MLflow child run
-
-Usage:
-    python3 temporal_experiment.py --config config.yaml
-    python3 temporal_experiment.py --config config.yaml --window-months 3 --min-train-months 6
+MLflow experiment : layer1-temporal-generalization
+Run name          : fasttext-2022-to-2024
 """
 
-import argparse
+import json
 import os
 import sys
+import tempfile
 import time
-from datetime import timedelta
 
 import mlflow
 import numpy as np
 import pandas as pd
-from dateutil.relativedelta import relativedelta
+from dotenv import load_dotenv
+from sklearn.metrics import classification_report, f1_score
 from sklearn.preprocessing import LabelEncoder
 
+# ── Path setup ────────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(__file__))
-import train as train_module
 import utils as preprocess
-import evaluate as eval_module
+from train import (
+    load_config,
+    setup_mlflow,
+    get_git_sha,
+    log_config_params,
+    run_preprocessing,
+    run_training,
+    save_and_log_model,
+)
+
+# Load .env from project root (two levels up from training/)
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+MINIO_ENDPOINT   = os.environ.get("MINIO_ENDPOINT",   "")
+MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "")
+MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "")
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="config.yaml")
-    parser.add_argument(
-        "--window-months", type=int, default=1,
-        help="Test window width in months (default: 1)",
+# ── MinIO helpers ─────────────────────────────────────────────────────────────
+
+def _minio_client(cfg: dict):
+    from minio import Minio
+
+    endpoint = MINIO_ENDPOINT or cfg["minio"]["endpoint"]
+    access   = MINIO_ACCESS_KEY or cfg["minio"].get("access_key", "minioadmin")
+    secret   = MINIO_SECRET_KEY or cfg["minio"].get("secret_key", "minioadmin")
+
+    endpoint_clean = endpoint.replace("http://", "").replace("https://", "")
+    secure = endpoint.startswith("https://")
+    return Minio(endpoint_clean, access_key=access, secret_key=secret, secure=secure)
+
+
+def load_csv_from_minio(cfg: dict, object_path: str) -> pd.DataFrame:
+    """Download object_path from the configured MinIO bucket and return as DataFrame."""
+    client = _minio_client(cfg)
+    bucket = cfg["minio"]["bucket"]
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        client.fget_object(bucket, object_path, tmp_path)
+        df = pd.read_csv(tmp_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    return df
+
+
+# ── Eval helpers ──────────────────────────────────────────────────────────────
+
+def _encode_eval(df: pd.DataFrame, le: LabelEncoder) -> tuple[pd.Series, np.ndarray, int]:
+    """
+    Normalize payees and encode labels for an eval set using an already-fitted
+    LabelEncoder.  Rows whose category is not in the training classes are dropped.
+
+    Returns:
+        X       — payee_norm Series
+        y       — integer-encoded label array
+        dropped — number of rows dropped due to unknown categories
+    """
+    df = df[["payee", "category"]].copy()
+    df["payee_norm"] = df["payee"].apply(preprocess.normalize_payee)
+
+    known_mask = df["category"].isin(le.classes_)
+    dropped    = int((~known_mask).sum())
+    df         = df[known_mask].reset_index(drop=True)
+
+    df["label"] = le.transform(df["category"])
+    return df["payee_norm"], df["label"].values, dropped
+
+
+def _eval_and_log(
+    clf,
+    vec,
+    X: pd.Series,
+    y: np.ndarray,
+    label_classes: list[str],
+    suffix: str,
+) -> dict[str, float]:
+    """
+    Run prediction, compute metrics, log to the active MLflow run with suffix.
+    """
+    X_vec = vec.transform(X) if vec is not None else X
+    preds = clf.predict(X_vec)
+
+    weighted_f1 = f1_score(y, preds, average="weighted", zero_division=0)
+    macro_f1    = f1_score(y, preds, average="macro",    zero_division=0)
+
+    mlflow.log_metric(f"weighted_f1{suffix}", weighted_f1)
+    mlflow.log_metric(f"macro_f1{suffix}",    macro_f1)
+
+    all_labels  = list(range(len(label_classes)))
+    report_dict = classification_report(
+        y, preds,
+        labels=all_labels,
+        target_names=label_classes,
+        output_dict=True,
+        zero_division=0,
     )
-    parser.add_argument(
-        "--min-train-months", type=int, default=6,
-        help="Minimum months of history before the first test window (default: 6)",
+    report_str = classification_report(
+        y, preds,
+        labels=all_labels,
+        target_names=label_classes,
+        zero_division=0,
     )
-    return parser.parse_args()
+
+    for cat in label_classes:
+        safe = cat.replace(" ", "_").replace("/", "_").replace("&", "and")
+        mlflow.log_metric(f"f1_{safe}{suffix}", report_dict[cat]["f1-score"])
+
+    with tempfile.TemporaryDirectory() as tmp:
+        report_path = os.path.join(tmp, f"classification_report{suffix}.json")
+        with open(report_path, "w") as fh:
+            json.dump(report_dict, fh, indent=2)
+        mlflow.log_artifact(report_path)
+
+        report_txt = os.path.join(tmp, f"classification_report{suffix}.txt")
+        with open(report_txt, "w") as fh:
+            fh.write(report_str)
+        mlflow.log_artifact(report_txt)
+
+    print(f"\n{'─'*55}")
+    print(f"  Eval set       : {suffix.lstrip('_')}")
+    print(f"  Weighted F1    : {weighted_f1:.4f}")
+    print(f"  Macro F1       : {macro_f1:.4f}")
+    print(f"{'─'*55}")
+    print(report_str)
+
+    return {"weighted_f1": weighted_f1, "macro_f1": macro_f1}
 
 
-def make_folds(
-    df: pd.DataFrame,
-    window_months: int,
-    min_train_months: int,
-):
-    """Yield (df_train, df_test, cutoff_label) for each rolling window."""
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["date"])
+# ── Payee overlap ─────────────────────────────────────────────────────────────
 
-    min_date = df["date"].min()
-    max_date = df["date"].max()
-    cutoff   = min_date + relativedelta(months=min_train_months)
-
-    while cutoff + relativedelta(months=window_months) <= max_date + timedelta(days=1):
-        test_end = cutoff + relativedelta(months=window_months)
-        df_train = df[df["date"] < cutoff].copy()
-        df_test  = df[(df["date"] >= cutoff) & (df["date"] < test_end)].copy()
-
-        if len(df_train) > 0 and len(df_test) > 0:
-            yield df_train, df_test, cutoff.strftime("%Y-%m")
-
-        cutoff = test_end
+def compute_payee_overlap(train_payees: pd.Series, eval_payees: pd.Series) -> dict:
+    train_set = set(train_payees.apply(preprocess.normalize_payee))
+    eval_set  = set(eval_payees.apply(preprocess.normalize_payee))
+    shared    = train_set & eval_set
+    new       = eval_set - train_set
+    return {"shared_payees": len(shared), "new_payees": len(new)}
 
 
-def run_fold(
-    df_train: pd.DataFrame,
-    df_test: pd.DataFrame,
-    cfg: dict,
-    cutoff_str: str,
-) -> dict | None:
-    """Train + evaluate one fold as a nested MLflow run. Returns metrics or None."""
-    le = LabelEncoder()
-    le.fit(df_train["category"])
-    label_classes = le.classes_.tolist()
-
-    # Restrict test to labels seen during training
-    df_test = df_test[df_test["category"].isin(le.classes_)].copy()
-    if len(df_test) == 0:
-        print(f"[temporal] Fold {cutoff_str}: no test rows with known labels — skipping")
-        return None
-
-    for split in (df_train, df_test):
-        if "payee_norm" not in split.columns:
-            split["payee_norm"] = split["payee"].apply(preprocess.normalize_payee)
-
-    df_train["label"] = le.transform(df_train["category"])
-    df_test["label"]  = le.transform(df_test["category"])
-
-    X_train = df_train["payee_norm"]
-    y_train = df_train["label"].values
-    X_test  = df_test["payee_norm"]
-    y_test  = df_test["label"].values
-
-    with mlflow.start_run(run_name=f"fold-{cutoff_str}", nested=True):
-        mlflow.set_tag("fold_cutoff", cutoff_str)
-        mlflow.log_param("train_rows", len(df_train))
-        mlflow.log_param("test_rows",  len(df_test))
-        mlflow.log_param("model",      cfg["model"])
-
-        t0     = time.perf_counter()
-        result = train_module.run_training(X_train, y_train, cfg)
-        mlflow.log_metric("training_time_seconds", round(time.perf_counter() - t0, 2))
-
-        vec, clf = result if isinstance(result, tuple) and len(result) == 2 else (None, result)
-
-        # Catch SystemExit from the quality gate so a single bad fold doesn't
-        # abort the whole experiment — it's already tagged in MLflow.
-        try:
-            metrics = eval_module.evaluate_and_log(
-                clf=clf, vec=vec, X_val=X_test, y_val=y_test,
-                label_classes=label_classes, config=cfg,
-            )
-        except SystemExit:
-            metrics = None
-
-    return metrics
-
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    args = parse_args()
-    cfg  = train_module.load_config(args.config)
-    train_module.setup_mlflow(cfg)
+    config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
+    cfg = load_config(config_path)
+    print(f"[config] Loaded {config_path}")
 
-    print(f"[temporal] Loading data from {cfg['data']['raw_path']} ...")
-    df = pd.read_csv(cfg["data"]["raw_path"])
-    print(f"[temporal] Loaded {len(df):,} rows")
+    # Force fastText for this experiment
+    cfg["model"] = "fasttext"
 
-    folds = list(make_folds(df, args.window_months, args.min_train_months))
-    print(
-        f"[temporal] {len(folds)} fold(s) — "
-        f"window={args.window_months}mo  min_train={args.min_train_months}mo"
-    )
+    # Override experiment name
+    cfg["mlflow"]["experiment_name"] = "layer1-temporal-generalization"
 
-    with mlflow.start_run(run_name=f"{cfg['model']}-temporal"):
-        mlflow.set_tag("experiment_type", "temporal")
-        mlflow.log_param("window_months",    args.window_months)
-        mlflow.log_param("min_train_months", args.min_train_months)
-        mlflow.log_param("n_folds",          len(folds))
+    setup_mlflow(cfg)
 
-        fold_metrics = []
-        for df_train, df_test, cutoff_str in folds:
-            print(f"\n[temporal] Fold {cutoff_str}: train={len(df_train):,}  test={len(df_test):,}")
-            m = run_fold(df_train, df_test, cfg, cutoff_str)
-            if m:
-                fold_metrics.append(m)
+    with mlflow.start_run(run_name="fasttext-2022-to-2024"):
+        mlflow.set_tag("git_sha",  get_git_sha())
+        mlflow.set_tag("run_type", "temporal_generalization")
 
-        if fold_metrics:
-            avg_weighted = float(np.mean([m["weighted_f1"] for m in fold_metrics]))
-            avg_macro    = float(np.mean([m["macro_f1"]    for m in fold_metrics]))
-            mlflow.log_metric("avg_weighted_f1", round(avg_weighted, 4))
-            mlflow.log_metric("avg_macro_f1",    round(avg_macro,    4))
+        log_config_params(cfg)
 
-            print(f"\n{'─'*55}")
-            print(f"  Temporal Experiment Summary ({len(fold_metrics)} folds)")
-            print(f"  Avg Weighted F1 : {avg_weighted:.4f}")
-            print(f"  Avg Macro F1    : {avg_macro:.4f}")
-            print(f"{'─'*55}")
+        # ── 1. Preprocess training data (2022) ────────────────────────────────
+        print("[temporal] Preprocessing training data (2022) ...")
+        X_train, X_val, y_train, y_val, label_classes = run_preprocessing(cfg)
+
+        # Reconstruct the LabelEncoder fitted on training categories so we can
+        # reuse it for eval sets without re-fitting.
+        le = LabelEncoder()
+        le.classes_ = np.array(label_classes)
+
+        # ── 2. Train fastText ─────────────────────────────────────────────────
+        print("[temporal] Training fastText ...")
+        t0     = time.perf_counter()
+        result = run_training(X_train, y_train, cfg)
+        mlflow.log_metric("training_time_seconds", round(time.perf_counter() - t0, 2))
+
+        vec, clf = (result if isinstance(result, tuple) and len(result) == 2
+                    else (None, result))
+
+        # ── 3. Load eval sets from MinIO ──────────────────────────────────────
+        print("[temporal] Loading synthetic eval set (2024) from MinIO ...")
+        df_synthetic = load_csv_from_minio(cfg, "data/raw/evaluation.csv")
+
+        print("[temporal] Loading real-world eval set from MinIO ...")
+        df_realworld = load_csv_from_minio(cfg, "data/raw/evaluation_moneydata.csv")
+
+        # ── 4. Load training CSV for payee overlap computation ────────────────
+        print("[temporal] Loading train.csv for payee overlap ...")
+        df_train_raw = load_csv_from_minio(cfg, "data/raw/train.csv")
+
+        # ── 5. Payee overlap (train vs 2024 synthetic) ────────────────────────
+        overlap = compute_payee_overlap(df_train_raw["payee"], df_synthetic["payee"])
+        mlflow.log_metric("shared_payees", overlap["shared_payees"])
+        mlflow.log_metric("new_payees",    overlap["new_payees"])
+        print(f"[temporal] Payee overlap — shared={overlap['shared_payees']}  "
+              f"new={overlap['new_payees']}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            overlap_path = os.path.join(tmp, "payee_overlap.json")
+            with open(overlap_path, "w") as fh:
+                json.dump(overlap, fh, indent=2)
+            mlflow.log_artifact(overlap_path)
+
+        # ── 6. Encode eval sets ───────────────────────────────────────────────
+        X_syn, y_syn, _ = _encode_eval(df_synthetic, le)
+
+        X_rw, y_rw, dropped_rw = _encode_eval(df_realworld, le)
+        mlflow.log_metric("realworld_dropped_rows", dropped_rw)
+        if dropped_rw:
+            print(f"[temporal] Dropped {dropped_rw} real-world rows "
+                  f"with unknown categories.")
+
+        # ── 7. Evaluate on both sets ──────────────────────────────────────────
+        print("[temporal] Evaluating on synthetic (2024) set ...")
+        metrics_syn = _eval_and_log(clf, vec, X_syn, y_syn, label_classes, "_synthetic")
+
+        print("[temporal] Evaluating on real-world set ...")
+        metrics_rw  = _eval_and_log(clf, vec, X_rw,  y_rw,  label_classes, "_realworld")
+
+        # ── 8. Save model artifact ────────────────────────────────────────────
+        save_and_log_model(vec, clf, cfg)
+
+        print(
+            f"\n[done] Temporal experiment complete — "
+            f"synthetic_weighted_f1={metrics_syn['weighted_f1']:.4f}  "
+            f"realworld_weighted_f1={metrics_rw['weighted_f1']:.4f}"
+        )
 
 
 if __name__ == "__main__":
