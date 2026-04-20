@@ -17,10 +17,10 @@ For each transaction:
 
 Usage:
     python generate_data.py
-    python generate_data.py --serving_url http://129.114.25.161:8000 --max_transactions 1000
+    python generate_data.py --serving_url http://129.114.26.157:30508 --max_transactions 1000
 
 Environment variables:
-    SERVING_URL       — Jayraj's serving endpoint (default: http://129.114.25.161:8000)
+    SERVING_URL       — Jayraj's serving endpoint (default: http://129.114.26.157:30508)
     MINIO_ENDPOINT    — MinIO endpoint (default: http://10.43.4.193:9000)
     MINIO_ACCESS_KEY  — MinIO access key (default: minioadmin)
     MINIO_SECRET_KEY  — MinIO secret key (default: minioadmin123)
@@ -41,7 +41,7 @@ from datetime import datetime
 
 random.seed(42)
 
-DEFAULT_SERVING_URL  = os.environ.get("SERVING_URL", "http://129.114.25.161:8000")
+DEFAULT_SERVING_URL  = os.environ.get("SERVING_URL", "http://129.114.26.157:30508")
 MINIO_ENDPOINT       = os.environ.get("MINIO_ENDPOINT",   "http://10.43.4.193:9000")
 MINIO_ACCESS_KEY     = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY     = os.environ.get("MINIO_SECRET_KEY", "minioadmin123")
