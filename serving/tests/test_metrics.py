@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import unittest
 from unittest import mock
 
@@ -59,11 +58,17 @@ class MetricsTests(unittest.TestCase):
         value: str,
         **labels: str,
     ) -> None:
-        pattern = re.escape(metric) + r"\{"
-        for key, label_value in labels.items():
-            pattern += r'[^}]*' + re.escape(f'{key}="{label_value}"')
-        pattern += r"[^}]*\}\s+" + re.escape(value)
-        self.assertRegex(rendered, pattern)
+        for line in rendered.splitlines():
+            if not line.startswith(f"{metric}{{"):
+                continue
+            if not line.endswith(f" {value}"):
+                continue
+            if all(f'{key}="{label_value}"' in line for key, label_value in labels.items()):
+                return
+        self.fail(
+            f"Metric {metric} with labels {labels} and value {value} was not found.\n"
+            f"Rendered metrics were:\n{rendered}"
+        )
 
     @mock.patch("app.metrics.db.pool_available", return_value=True)
     @mock.patch("app.metrics.layer1.get_router_snapshot", return_value=_snapshot())
