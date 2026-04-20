@@ -1,8 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
 
 import {
-  classifyTransaction,
-  type ClassifyResponse,
+  classifyTransactions,
+  createClassificationBatchId,
+  DEFAULT_BULK_CLASSIFY_CONCURRENCY,
 } from './mlService';
 
 export type MLPrediction = {
@@ -44,26 +45,30 @@ export function useMLClassify(accountId: string) {
         t => !t.category && t.payee_name && t.date,
       );
 
-      const results = await Promise.allSettled(
-        toClassify.map(t =>
-          classifyTransaction({
-            account: accountId,
-            date: t.date!,
-            amount: t.amount ?? 0,
-            payee_name: t.payee_name!,
-            imported_id: t.imported_id ?? t.trx_id,
-          }),
-        ),
+      const batchId = createClassificationBatchId(accountId);
+      const results = await classifyTransactions(
+        toClassify.map(t => ({
+          account: accountId,
+          date: t.date!,
+          amount: t.amount ?? 0,
+          payee_name: t.payee_name!,
+          imported_id: t.imported_id ?? t.trx_id,
+        })),
+        {
+          requestMode: 'bulk',
+          batchId,
+          concurrency: DEFAULT_BULK_CLASSIFY_CONCURRENCY,
+        },
       );
 
       results.forEach((result, idx) => {
-        if (result.status === 'fulfilled' && result.value) {
+        if (result) {
           const t = toClassify[idx];
           newPreds[t.trx_id] = {
-            category: result.value.category,
-            confidence: result.value.confidence,
-            source: result.value.source,
-            model_version: result.value.model_version,
+            category: result.category,
+            confidence: result.confidence,
+            source: result.source,
+            model_version: result.model_version,
           };
         }
       });

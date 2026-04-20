@@ -21,7 +21,11 @@ async def classify_transaction(req: ClassifyRequest) -> ClassifyResponse:
     features = compute_features(req.payee, req.amount, req.date)
     model_input = features["normalized_payee"]
 
-    l1_result = layer1.predict(model_input)
+    l1_result = layer1.predict(
+        model_input,
+        request_mode=req.request_mode,
+        batch_id=req.batch_id,
+    )
 
     l2_result = await layer2.classify(req.user_id, req.payee)
     if l2_result is not None:

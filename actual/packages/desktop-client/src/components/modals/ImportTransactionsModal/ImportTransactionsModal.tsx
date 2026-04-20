@@ -40,7 +40,12 @@ import { useDateFormat } from '#hooks/useDateFormat';
 import { useSyncedPrefs } from '#hooks/useSyncedPrefs';
 import { payeeQueries } from '#payees';
 
-import { classifyTransaction, submitFeedback } from '../../../ml/mlService';
+import {
+  classifyTransactions,
+  createClassificationBatchId,
+  DEFAULT_BULK_CLASSIFY_CONCURRENCY,
+  submitFeedback,
+} from '../../../ml/mlService';
 
 import { DateFormatSelect } from './DateFormatSelect';
 import { FieldMappings } from './FieldMappings';
@@ -777,36 +782,38 @@ export function ImportTransactionsModal({
             const allTxns = await send('api/transactions-get', { accountId }) as { id: string; payee?: string; imported_payee?: string; amount?: number; date?: string; category?: string }[];
             const uncategorized = (allTxns || []).filter(t => !t.category);
 
-            await Promise.all(
-              uncategorized.map(async tx => {
-                const payeeName = tx.imported_payee || tx.payee || '';
-                try {
-                  const r = await classifyTransaction({
-                    account: accountId,
-                    imported_id: tx.id,
-                    payee_name: payeeName,
-                    amount: tx.amount || 0,
-                    date: tx.date || '',
-                  });
-                  if (r && r.confidence >= 0.5) {
-                    preds.push({
-                      id: tx.id,
-                      payee: payeeName,
-                      amount: tx.amount || 0,
-                      date: tx.date || '',
-                      predictedCategory: r.category,
-                      selectedCategory: r.category,
-                      confidence: r.confidence,
-                      source: r.source,
-                    });
-                  } else if (!r) {
-                    classifierFailures += 1;
-                  }
-                } catch {
-                  classifierFailures += 1;
-                }
-              }),
-            );
+            const batchId = createClassificationBatchId(accountId);
+            const requests = uncategorized.map(tx => ({
+              account: accountId,
+              imported_id: tx.id,
+              payee_name: tx.imported_payee || tx.payee || '',
+              amount: tx.amount || 0,
+              date: tx.date || '',
+            }));
+            const results = await classifyTransactions(requests, {
+              requestMode: 'bulk',
+              batchId,
+              concurrency: DEFAULT_BULK_CLASSIFY_CONCURRENCY,
+            });
+
+            results.forEach((r, idx) => {
+              const tx = uncategorized[idx];
+              const payeeName = tx.imported_payee || tx.payee || '';
+              if (r && r.confidence >= 0.5) {
+                preds.push({
+                  id: tx.id,
+                  payee: payeeName,
+                  amount: tx.amount || 0,
+                  date: tx.date || '',
+                  predictedCategory: r.category,
+                  selectedCategory: r.category,
+                  confidence: r.confidence,
+                  source: r.source,
+                });
+              } else if (!r) {
+                classifierFailures += 1;
+              }
+            });
           } catch {
             classifierFailures += 1;
           }

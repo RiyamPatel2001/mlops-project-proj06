@@ -1,17 +1,19 @@
 """
-Layer 1 multi-model registry and demand router.
+Layer 1 multi-model registry with request-aware routing.
 
 All three serving tiers are loaded during startup and kept warm:
 
-* ``good``  -> MiniLM
-* ``fast``  -> FastText
-* ``cheap`` -> TF-IDF + Logistic Regression
+* ``good``  -> MiniLM for interactive, user-facing predictions
+* ``fast``  -> FastText for normal bulk imports
+* ``cheap`` -> TF-IDF + Logistic Regression as overload fallback
 
-Incoming request demand is measured over a rolling time window. The router keeps
-``good`` as the default tier at low load, promotes to ``fast`` under medium
-load, and promotes to ``cheap`` under high load. A switch is only committed once
-the target model reports itself ready; requests already assigned to another tier
-continue on that tier until they finish.
+Routing is no longer a single global switch for the whole server. Instead:
+
+* interactive requests always prefer ``good``
+* bulk requests default to ``fast``
+* new bulk batches move to ``cheap`` only after sustained service overload
+* a bulk ``batch_id`` is pinned to one tier for a configurable TTL so one
+  import job stays consistent even while other users are active
 """
 
 from __future__ import annotations
@@ -29,10 +31,10 @@ from app.config import (
     LABEL_CLASSES,
     LAYER1_HF_MAX_LENGTH,
     MLFLOW_TRACKING_URI,
-    ROUTER_DEMAND_WINDOW_SECONDS,
-    ROUTER_HIGH_DEMAND_RPS,
-    ROUTER_MEDIUM_DEMAND_RPS,
-    ROUTER_SWITCH_COOLDOWN_SECONDS,
+    ROUTER_BATCH_STICKY_TTL_SECONDS,
+    ROUTER_OVERLOAD_INFLIGHT_THRESHOLD,
+    ROUTER_OVERLOAD_SUSTAIN_SECONDS,
+    ROUTER_REQUEST_WINDOW_SECONDS,
     TIER_CHEAP_ARTIFACT_PATH,
     TIER_CHEAP_MODEL_KIND,
     TIER_CHEAP_MODEL_NAME,
@@ -56,10 +58,15 @@ class Tier(str, Enum):
     CHEAP = "cheap"
 
 
-class DemandLevel(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+class RequestMode(str, Enum):
+    INTERACTIVE = "interactive"
+    BULK = "bulk"
+
+
+class OverloadState(str, Enum):
+    NORMAL = "normal"
+    WARMING = "warming"
+    ACTIVE = "active"
 
 
 @dataclass(frozen=True)
@@ -81,15 +88,23 @@ class ModelRuntime:
     load_error: Optional[str] = None
 
 
+@dataclass
+class BatchAssignment:
+    tier: Tier
+    expires_at: float
+
+
 @dataclass(frozen=True)
 class PredictionResult:
     category: str
     confidence: float
     tier: str
-    demand_level: str
     model_name: str
     model_kind: str
     model_version: str
+    request_mode: str
+    batch_id: Optional[str]
+    overload_state: str
 
 
 @dataclass(frozen=True)
@@ -108,8 +123,16 @@ class RouterSnapshot:
     active_tier: str
     active_model_name: str
     active_model_version: str
+    interactive_tier: str
+    interactive_model_name: str
+    bulk_tier: str
+    bulk_model_name: str
     pending_tier: Optional[str]
     demand_level: str
+    overload_state: str
+    active_batch_count: int
+    total_inflight_requests: int
+    last_request_mode: str
     request_rate_rps: float
     models: list[ModelStatus] = field(default_factory=list)
 
@@ -118,22 +141,24 @@ class MultiModelRegistry:
     def __init__(
         self,
         configs: list[TierConfig],
-        demand_window_seconds: int,
-        medium_demand_rps: float,
-        high_demand_rps: float,
-        switch_cooldown_seconds: float,
+        request_window_seconds: int,
+        batch_sticky_ttl_seconds: int,
+        overload_inflight_threshold: int,
+        overload_sustain_seconds: float,
     ) -> None:
         self._configs = {cfg.tier: cfg for cfg in configs}
-        self._demand_window_seconds = max(1, demand_window_seconds)
-        self._medium_demand_rps = medium_demand_rps
-        self._high_demand_rps = max(high_demand_rps, medium_demand_rps)
-        self._switch_cooldown_seconds = max(0.0, switch_cooldown_seconds)
+        self._request_window_seconds = max(1, request_window_seconds)
+        self._batch_sticky_ttl_seconds = max(1, batch_sticky_ttl_seconds)
+        self._overload_inflight_threshold = max(1, overload_inflight_threshold)
+        self._overload_sustain_seconds = max(0.0, overload_sustain_seconds)
 
         self._models: dict[Tier, ModelRuntime] = {}
-        self._active_tier: Tier = Tier.GOOD
-        self._pending_tier: Optional[Tier] = None
         self._request_times: deque[float] = deque()
-        self._last_switch_at: float = 0.0
+        self._batch_assignments: dict[str, BatchAssignment] = {}
+        self._total_inflight_requests: int = 0
+        self._overload_started_at: Optional[float] = None
+        self._last_routed_tier: Tier = Tier.GOOD
+        self._last_request_mode: RequestMode = RequestMode.INTERACTIVE
         self._lock = threading.RLock()
 
     def load_all(self) -> None:
@@ -159,10 +184,12 @@ class MultiModelRegistry:
 
         with self._lock:
             self._models = loaded
-            self._active_tier = Tier.GOOD
-            self._pending_tier = None
             self._request_times.clear()
-            self._last_switch_at = time.monotonic()
+            self._batch_assignments.clear()
+            self._total_inflight_requests = 0
+            self._overload_started_at = None
+            self._last_routed_tier = Tier.GOOD
+            self._last_request_mode = RequestMode.INTERACTIVE
 
         if errors:
             raise RuntimeError(
@@ -170,53 +197,75 @@ class MultiModelRegistry:
                 + " | ".join(errors)
             )
 
-        missing = [tier.value for tier in (Tier.GOOD, Tier.FAST, Tier.CHEAP) if tier not in loaded]
+        missing = [
+            tier.value
+            for tier in (Tier.GOOD, Tier.FAST, Tier.CHEAP)
+            if tier not in loaded
+        ]
         if missing:
             raise RuntimeError(f"Missing loaded tiers: {', '.join(missing)}")
 
     def install_runtime_for_tests(self, tier: Tier, runtime: ModelRuntime) -> None:
         with self._lock:
             self._models[tier] = runtime
-            if tier == Tier.GOOD and self._active_tier not in self._models:
-                self._active_tier = Tier.GOOD
 
-    def predict(self, text: str) -> PredictionResult:
+    def predict(
+        self,
+        text: str,
+        request_mode: str = RequestMode.INTERACTIVE.value,
+        batch_id: Optional[str] = None,
+    ) -> PredictionResult:
         now = time.monotonic()
+        mode = _normalize_request_mode(request_mode)
 
         with self._lock:
+            self._cleanup_batch_assignments_locked(now)
             self._register_request_locked(now)
-            self._maybe_switch_locked(now)
-            runtime = self._models[self._active_tier]
-            if not runtime.ready:
-                runtime = self._best_ready_runtime_locked()
+            selected_tier = self._select_tier_locked(mode, batch_id, now)
+            runtime = self._preferred_runtime_locked(selected_tier)
             runtime.active_requests += 1
-            demand_level = self._current_demand_level_locked()
+            self._total_inflight_requests += 1
+            overload_state = self._current_overload_state_locked(now)
+            self._last_routed_tier = runtime.config.tier
+            self._last_request_mode = mode
 
         try:
             category, confidence = runtime.predictor(text)
         finally:
             with self._lock:
                 runtime.active_requests = max(0, runtime.active_requests - 1)
+                self._total_inflight_requests = max(
+                    0,
+                    self._total_inflight_requests - 1,
+                )
+                self._current_overload_state_locked(time.monotonic())
 
         return PredictionResult(
             category=category,
             confidence=round(confidence, 4),
             tier=runtime.config.tier.value,
-            demand_level=demand_level.value,
             model_name=runtime.config.name,
             model_kind=runtime.config.kind,
             model_version=runtime.version,
+            request_mode=mode.value,
+            batch_id=batch_id,
+            overload_state=overload_state.value,
         )
 
     def get_model_version(self) -> str:
-        snapshot = self.get_router_snapshot()
-        return snapshot.active_model_version
+        return self.get_router_snapshot().active_model_version
 
     def get_router_snapshot(self) -> RouterSnapshot:
         with self._lock:
-            self._trim_request_times_locked(time.monotonic())
+            now = time.monotonic()
+            self._trim_request_times_locked(now)
+            self._cleanup_batch_assignments_locked(now)
+            overload_state = self._current_overload_state_locked(now)
 
-            active_runtime = self._models[self._active_tier]
+            interactive_runtime = self._preferred_runtime_locked(Tier.GOOD)
+            bulk_runtime = self._preferred_runtime_locked(self._bulk_tier_locked(now))
+            last_runtime = self._preferred_runtime_locked(self._last_routed_tier)
+
             models = [
                 ModelStatus(
                     tier=tier.value,
@@ -227,15 +276,28 @@ class MultiModelRegistry:
                     active_requests=runtime.active_requests,
                     load_error=runtime.load_error,
                 )
-                for tier, runtime in self._models.items()
+                for tier in (Tier.GOOD, Tier.FAST, Tier.CHEAP)
+                if (runtime := self._models.get(tier)) is not None
             ]
 
             return RouterSnapshot(
-                active_tier=self._active_tier.value,
-                active_model_name=active_runtime.config.name,
-                active_model_version=active_runtime.version,
-                pending_tier=self._pending_tier.value if self._pending_tier else None,
-                demand_level=self._current_demand_level_locked().value,
+                active_tier=last_runtime.config.tier.value,
+                active_model_name=last_runtime.config.name,
+                active_model_version=last_runtime.version,
+                interactive_tier=interactive_runtime.config.tier.value,
+                interactive_model_name=interactive_runtime.config.name,
+                bulk_tier=bulk_runtime.config.tier.value,
+                bulk_model_name=bulk_runtime.config.name,
+                pending_tier=(
+                    Tier.CHEAP.value
+                    if overload_state == OverloadState.WARMING
+                    else None
+                ),
+                demand_level=overload_state.value,
+                overload_state=overload_state.value,
+                active_batch_count=len(self._batch_assignments),
+                total_inflight_requests=self._total_inflight_requests,
+                last_request_mode=self._last_request_mode.value,
                 request_rate_rps=round(self._current_rps_locked(), 4),
                 models=models,
             )
@@ -248,7 +310,9 @@ class MultiModelRegistry:
         elif cfg.kind == "sklearn":
             predictor, version = _load_sklearn_runtime(cfg)
         else:
-            raise ValueError(f"Unsupported model kind for tier {cfg.tier.value}: {cfg.kind}")
+            raise ValueError(
+                f"Unsupported model kind for tier {cfg.tier.value}: {cfg.kind}"
+            )
 
         runtime = ModelRuntime(
             config=cfg,
@@ -257,8 +321,6 @@ class MultiModelRegistry:
             ready=False,
         )
 
-        # Warm-up is the readiness signal used by the router before any traffic
-        # can move onto the tier.
         predictor("WARMUP")
         runtime.ready = True
         return runtime
@@ -268,61 +330,77 @@ class MultiModelRegistry:
         self._trim_request_times_locked(now)
 
     def _trim_request_times_locked(self, now: float) -> None:
-        cutoff = now - self._demand_window_seconds
+        cutoff = now - self._request_window_seconds
         while self._request_times and self._request_times[0] < cutoff:
             self._request_times.popleft()
 
+    def _cleanup_batch_assignments_locked(self, now: float) -> None:
+        expired = [
+            batch_id
+            for batch_id, assignment in self._batch_assignments.items()
+            if assignment.expires_at < now
+        ]
+        for batch_id in expired:
+            del self._batch_assignments[batch_id]
+
     def _current_rps_locked(self) -> float:
-        return len(self._request_times) / float(self._demand_window_seconds)
+        return len(self._request_times) / float(self._request_window_seconds)
 
-    def _current_demand_level_locked(self) -> DemandLevel:
-        current_rps = self._current_rps_locked()
-        if current_rps >= self._high_demand_rps:
-            return DemandLevel.HIGH
-        if current_rps >= self._medium_demand_rps:
-            return DemandLevel.MEDIUM
-        return DemandLevel.LOW
+    def _current_overload_state_locked(self, now: float) -> OverloadState:
+        if self._total_inflight_requests >= self._overload_inflight_threshold:
+            if self._overload_started_at is None:
+                self._overload_started_at = now
+            if now - self._overload_started_at >= self._overload_sustain_seconds:
+                return OverloadState.ACTIVE
+            return OverloadState.WARMING
 
-    def _target_tier_for_demand_locked(self) -> Tier:
-        level = self._current_demand_level_locked()
-        if level == DemandLevel.HIGH:
-            return Tier.CHEAP
-        if level == DemandLevel.MEDIUM:
-            return Tier.FAST
+        self._overload_started_at = None
+        return OverloadState.NORMAL
+
+    def _select_tier_locked(
+        self,
+        request_mode: RequestMode,
+        batch_id: Optional[str],
+        now: float,
+    ) -> Tier:
+        if request_mode == RequestMode.BULK:
+            if batch_id:
+                assignment = self._batch_assignments.get(batch_id)
+                if assignment is not None:
+                    assignment.expires_at = now + self._batch_sticky_ttl_seconds
+                    return assignment.tier
+
+            selected = self._bulk_tier_locked(now)
+            if batch_id:
+                self._batch_assignments[batch_id] = BatchAssignment(
+                    tier=selected,
+                    expires_at=now + self._batch_sticky_ttl_seconds,
+                )
+            return selected
+
         return Tier.GOOD
 
-    def _maybe_switch_locked(self, now: float) -> None:
-        target_tier = self._target_tier_for_demand_locked()
-        if target_tier == self._active_tier:
-            self._pending_tier = None
-            return
+    def _bulk_tier_locked(self, now: float) -> Tier:
+        overload_state = self._current_overload_state_locked(now)
+        if overload_state == OverloadState.ACTIVE:
+            return Tier.CHEAP
+        return Tier.FAST
 
-        runtime = self._models.get(target_tier)
-        if runtime is None or not runtime.ready:
-            self._pending_tier = target_tier
-            return
-
-        if now - self._last_switch_at < self._switch_cooldown_seconds:
-            self._pending_tier = target_tier
-            return
-
-        logger.info(
-            "Demand tier switch: %s -> %s (rps=%.3f)",
-            self._active_tier.value,
-            target_tier.value,
-            self._current_rps_locked(),
-        )
-        self._active_tier = target_tier
-        self._pending_tier = None
-        self._last_switch_at = now
-
-    def _best_ready_runtime_locked(self) -> ModelRuntime:
-        preferred = [self._active_tier, Tier.GOOD, Tier.FAST, Tier.CHEAP]
-        for tier in preferred:
+    def _preferred_runtime_locked(self, preferred_tier: Tier) -> ModelRuntime:
+        for tier in (preferred_tier, Tier.GOOD, Tier.FAST, Tier.CHEAP):
             runtime = self._models.get(tier)
             if runtime and runtime.ready:
                 return runtime
         raise RuntimeError("No ready Layer 1 model is available")
+
+
+def _normalize_request_mode(request_mode: str | RequestMode) -> RequestMode:
+    if isinstance(request_mode, RequestMode):
+        return request_mode
+    try:
+        return RequestMode(request_mode)
+    except ValueError:
+        return RequestMode.INTERACTIVE
 
 
 def _download_artifact(run_id: str, artifact_path: str) -> str:
@@ -345,8 +423,13 @@ def _load_hf_runtime(cfg: TierConfig) -> tuple[Callable[[str], tuple[str, float]
     model.eval()
 
     cfg_id2label = getattr(model.config, "id2label", None)
-    if cfg_id2label and not all(str(v).startswith("LABEL_") for v in cfg_id2label.values()):
-        id2label = [cfg_id2label[i] for i in sorted(cfg_id2label, key=lambda key: int(key))]
+    if cfg_id2label and not all(
+        str(v).startswith("LABEL_") for v in cfg_id2label.values()
+    ):
+        id2label = [
+            cfg_id2label[i]
+            for i in sorted(cfg_id2label, key=lambda key: int(key))
+        ]
     else:
         id2label = list(LABEL_CLASSES)
 
@@ -384,7 +467,10 @@ def _load_fasttext_runtime(cfg: TierConfig) -> tuple[Callable[[str], tuple[str, 
     def predict(text: str) -> tuple[str, float]:
         labels, probs = ft_model.predict(text.replace("\n", " "), k=1)
         raw_label = labels[0]
-        label = label_lookup.get(raw_label, raw_label.replace("__label__", "").replace("_", " "))
+        label = label_lookup.get(
+            raw_label,
+            raw_label.replace("__label__", "").replace("_", " "),
+        )
         if label not in LABEL_CLASSES:
             label = "Other"
         return label, float(probs[0])
@@ -439,7 +525,7 @@ def _resolve_label(pred_label: object) -> str:
     if isinstance(pred_label, str) and pred_label in LABEL_CLASSES:
         return pred_label
 
-    if isinstance(pred_label, (int,)) and 0 <= pred_label < len(LABEL_CLASSES):
+    if isinstance(pred_label, int) and 0 <= pred_label < len(LABEL_CLASSES):
         return LABEL_CLASSES[pred_label]
 
     try:
@@ -476,10 +562,10 @@ _registry = MultiModelRegistry(
             artifact_path=TIER_CHEAP_ARTIFACT_PATH,
         ),
     ],
-    demand_window_seconds=ROUTER_DEMAND_WINDOW_SECONDS,
-    medium_demand_rps=ROUTER_MEDIUM_DEMAND_RPS,
-    high_demand_rps=ROUTER_HIGH_DEMAND_RPS,
-    switch_cooldown_seconds=ROUTER_SWITCH_COOLDOWN_SECONDS,
+    request_window_seconds=ROUTER_REQUEST_WINDOW_SECONDS,
+    batch_sticky_ttl_seconds=ROUTER_BATCH_STICKY_TTL_SECONDS,
+    overload_inflight_threshold=ROUTER_OVERLOAD_INFLIGHT_THRESHOLD,
+    overload_sustain_seconds=ROUTER_OVERLOAD_SUSTAIN_SECONDS,
 )
 
 
@@ -487,8 +573,12 @@ def load_model() -> None:
     _registry.load_all()
 
 
-def predict(text: str) -> PredictionResult:
-    return _registry.predict(text)
+def predict(
+    text: str,
+    request_mode: str = RequestMode.INTERACTIVE.value,
+    batch_id: Optional[str] = None,
+) -> PredictionResult:
+    return _registry.predict(text, request_mode=request_mode, batch_id=batch_id)
 
 
 def get_model_version() -> str:

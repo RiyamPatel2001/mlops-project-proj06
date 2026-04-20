@@ -7,14 +7,21 @@ import unittest
 from app.layer1 import (
     ModelRuntime,
     MultiModelRegistry,
+    RequestMode,
     Tier,
     TierConfig,
 )
 
 
-def _runtime(tier: Tier, name: str, ready: bool = True, blocker: threading.Event | None = None) -> ModelRuntime:
-    def predict(_: str) -> tuple[str, float]:
-        if blocker is not None:
+def _runtime(
+    tier: Tier,
+    name: str,
+    ready: bool = True,
+    blocker: threading.Event | None = None,
+    block_on: str = "hold",
+) -> ModelRuntime:
+    def predict(text: str) -> tuple[str, float]:
+        if blocker is not None and text == block_on:
             blocker.wait(timeout=2.0)
         return name, 0.9
 
@@ -32,17 +39,17 @@ def _runtime(tier: Tier, name: str, ready: bool = True, blocker: threading.Event
     )
 
 
-def _registry() -> MultiModelRegistry:
+def _registry(overload_threshold: int = 24) -> MultiModelRegistry:
     registry = MultiModelRegistry(
         configs=[
             TierConfig(Tier.GOOD, "minilm", "test", "good-run", "good"),
             TierConfig(Tier.FAST, "fasttext", "test", "fast-run", "fast"),
             TierConfig(Tier.CHEAP, "tfidf", "test", "cheap-run", "cheap"),
         ],
-        demand_window_seconds=4,
-        medium_demand_rps=0.5,
-        high_demand_rps=1.0,
-        switch_cooldown_seconds=0.0,
+        request_window_seconds=10,
+        batch_sticky_ttl_seconds=60,
+        overload_inflight_threshold=overload_threshold,
+        overload_sustain_seconds=0.0,
     )
     registry.install_runtime_for_tests(Tier.GOOD, _runtime(Tier.GOOD, "minilm"))
     registry.install_runtime_for_tests(Tier.FAST, _runtime(Tier.FAST, "fasttext"))
@@ -51,67 +58,116 @@ def _registry() -> MultiModelRegistry:
 
 
 class Layer1RouterTests(unittest.TestCase):
-    def test_low_medium_high_demand_routes_good_fast_cheap(self) -> None:
+    def test_interactive_requests_stay_on_good(self) -> None:
         registry = _registry()
 
-        first = registry.predict("merchant")
-        second = registry.predict("merchant")
-        third = registry.predict("merchant")
-        fourth = registry.predict("merchant")
-
-        self.assertEqual(first.tier, "good")
-        self.assertEqual(second.tier, "fast")
-        self.assertEqual(third.tier, "fast")
-        self.assertEqual(fourth.tier, "cheap")
-
-    def test_switch_waits_for_ready_target(self) -> None:
-        registry = _registry()
-        registry.install_runtime_for_tests(
-            Tier.FAST,
-            _runtime(Tier.FAST, "fasttext", ready=False),
-        )
-
-        first = registry.predict("merchant")
-        second = registry.predict("merchant")
-        snapshot = registry.get_router_snapshot()
+        first = registry.predict("merchant", request_mode=RequestMode.INTERACTIVE.value)
+        second = registry.predict("merchant", request_mode="unknown-mode")
 
         self.assertEqual(first.tier, "good")
         self.assertEqual(second.tier, "good")
-        self.assertEqual(snapshot.pending_tier, "fast")
-        self.assertEqual(snapshot.active_tier, "good")
 
-    def test_inflight_request_completes_on_old_tier_during_switch(self) -> None:
+    def test_bulk_batch_is_pinned_to_fast_by_default(self) -> None:
         registry = _registry()
+
+        first = registry.predict(
+            "merchant",
+            request_mode=RequestMode.BULK.value,
+            batch_id="import-1",
+        )
+        second = registry.predict(
+            "merchant",
+            request_mode=RequestMode.BULK.value,
+            batch_id="import-1",
+        )
+
+        self.assertEqual(first.tier, "fast")
+        self.assertEqual(second.tier, "fast")
+        self.assertEqual(registry.get_router_snapshot().active_batch_count, 1)
+
+    def test_new_bulk_batches_fall_back_to_cheap_under_overload(self) -> None:
+        registry = _registry(overload_threshold=1)
         blocker = threading.Event()
         registry.install_runtime_for_tests(
-            Tier.GOOD,
-            _runtime(Tier.GOOD, "minilm", blocker=blocker),
+            Tier.FAST,
+            _runtime(Tier.FAST, "fasttext", blocker=blocker),
         )
 
         results: list[str] = []
 
-        def run_blocked_request() -> None:
-            results.append(registry.predict("merchant").tier)
+        def run_blocked_batch() -> None:
+            result = registry.predict(
+                "hold",
+                request_mode=RequestMode.BULK.value,
+                batch_id="import-1",
+            )
+            results.append(result.tier)
 
-        thread = threading.Thread(target=run_blocked_request)
+        thread = threading.Thread(target=run_blocked_batch)
         thread.start()
 
         deadline = time.time() + 2.0
         while time.time() < deadline:
             snapshot = registry.get_router_snapshot()
-            good_status = next(model for model in snapshot.models if model.tier == "good")
-            if good_status.active_requests > 0:
+            if snapshot.total_inflight_requests > 0:
                 break
             time.sleep(0.01)
         else:
-            self.fail("good tier request never became active")
+            self.fail("bulk request never became active")
 
-        switched = registry.predict("merchant")
+        overloaded_batch = registry.predict(
+            "merchant",
+            request_mode=RequestMode.BULK.value,
+            batch_id="import-2",
+        )
+        sticky_batch = registry.predict(
+            "merchant",
+            request_mode=RequestMode.BULK.value,
+            batch_id="import-1",
+        )
+
         blocker.set()
         thread.join(timeout=2.0)
 
-        self.assertEqual(switched.tier, "fast")
-        self.assertEqual(results, ["good"])
+        self.assertEqual(results, ["fast"])
+        self.assertEqual(overloaded_batch.tier, "cheap")
+        self.assertEqual(sticky_batch.tier, "fast")
+
+    def test_interactive_requests_keep_good_during_bulk_overload(self) -> None:
+        registry = _registry(overload_threshold=1)
+        blocker = threading.Event()
+        registry.install_runtime_for_tests(
+            Tier.FAST,
+            _runtime(Tier.FAST, "fasttext", blocker=blocker),
+        )
+
+        def run_blocked_batch() -> None:
+            registry.predict(
+                "hold",
+                request_mode=RequestMode.BULK.value,
+                batch_id="import-1",
+            )
+
+        thread = threading.Thread(target=run_blocked_batch)
+        thread.start()
+
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            if registry.get_router_snapshot().total_inflight_requests > 0:
+                break
+            time.sleep(0.01)
+        else:
+            self.fail("bulk request never became active")
+
+        interactive = registry.predict(
+            "merchant",
+            request_mode=RequestMode.INTERACTIVE.value,
+        )
+
+        blocker.set()
+        thread.join(timeout=2.0)
+
+        self.assertEqual(interactive.tier, "good")
 
 
 if __name__ == "__main__":

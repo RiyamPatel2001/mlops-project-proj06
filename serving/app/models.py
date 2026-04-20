@@ -17,6 +17,14 @@ class ClassifyRequest(BaseModel):
     payee: str = Field(..., description="Raw payee / merchant string")
     amount: float = Field(..., description="Signed amount in dollars (negative = expense)")
     date: str = Field(..., description="Transaction date YYYY-MM-DD")
+    request_mode: Literal["interactive", "bulk"] = Field(
+        "interactive",
+        description="Interactive single-transaction traffic or bulk import traffic",
+    )
+    batch_id: Optional[str] = Field(
+        None,
+        description="Stable identifier used to pin one bulk import to a serving tier",
+    )
 
 
 class ClassifyResponse(BaseModel):
@@ -123,8 +131,16 @@ class HealthResponse(BaseModel):
     model_version: str
     active_tier: str
     active_model: str
+    interactive_tier: str
+    interactive_model: str
+    bulk_tier: str
+    bulk_model: str
     pending_tier: Optional[str] = None
     demand_level: str
+    overload_state: str
+    active_batch_count: int
+    total_inflight_requests: int
+    last_request_mode: str
     request_rate_rps: float
     models: list[ModelHealthStatus]
     uptime_seconds: float
