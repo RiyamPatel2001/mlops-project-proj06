@@ -150,16 +150,14 @@ def main() -> None:
             # Save + log artifact
             train_module.save_and_log_model(vec, clf, cfg)
 
-            quality_gate = mlflow.active_run().data.tags.get("quality_gate", "unknown")
-
-        # ── Step 6: Summary ───────────────────────────────────────────────────
+        # evaluate_and_log raises SystemExit(1) on failure, so reaching here means passed
         print(
             f"\n{'═'*55}\n"
             f"  Dataset        : {dataset_filename}\n"
             f"  Model          : {model_name}\n"
             f"  Weighted F1    : {metrics['weighted_f1']:.4f}\n"
             f"  Macro F1       : {metrics['macro_f1']:.4f}\n"
-            f"  Quality gate   : {quality_gate}\n"
+            f"  Quality gate   : passed\n"
             f"{'═'*55}"
         )
 
