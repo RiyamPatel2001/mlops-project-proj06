@@ -8,6 +8,7 @@ COPY model_pipeline/layer2/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY model_pipeline/ model_pipeline/
+COPY training/ training/
 RUN rm -f model_pipeline/layer2/config.yaml
 
 # Mount config.yaml at runtime:
