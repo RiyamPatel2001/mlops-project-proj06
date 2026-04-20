@@ -108,9 +108,25 @@ class SuggestionResponseRequest(BaseModel):
 
 # ── /health ──────────────────────────────────────────────────────────────────
 
+class ModelHealthStatus(BaseModel):
+    tier: str
+    model_name: str
+    model_kind: str
+    model_version: str
+    ready: bool
+    active_requests: int
+    load_error: Optional[str] = None
+
+
 class HealthResponse(BaseModel):
     status: str
     model_version: str
+    active_tier: str
+    active_model: str
+    pending_tier: Optional[str] = None
+    demand_level: str
+    request_rate_rps: float
+    models: list[ModelHealthStatus]
     uptime_seconds: float
 
 
