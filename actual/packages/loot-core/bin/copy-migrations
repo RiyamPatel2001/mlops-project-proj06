@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-ROOT=`dirname $(dirname "$0")`
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 DEST="$1"
 
 rm -rf "$DEST"/migrations

@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-ROOT=`dirname $0`/..
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 
 rm -rf ${ROOT}/build
 mkdir -p ${ROOT}/build
@@ -18,4 +18,3 @@ mkdir -p ${ROOT}/build/loot-core/lib-dist/electron
 cp ${ROOT}/../loot-core/lib-dist/electron/bundle.desktop.js ${ROOT}/build/loot-core/lib-dist/electron/bundle.desktop.js
 cp ${ROOT}/../loot-core/default-db.sqlite ${ROOT}/build/loot-core/default-db.sqlite
 cp -r ${ROOT}/../loot-core/migrations ${ROOT}/build/loot-core/migrations
-

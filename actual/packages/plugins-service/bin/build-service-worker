@@ -1,7 +1,8 @@
 #!/bin/bash -e
 
-cd `dirname "$0"`
-ROOT=`pwd -P`
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+cd "$SCRIPT_DIR"
+ROOT="$SCRIPT_DIR"
 VITE_ARGS=""
 
 DESKTOP_DIR="$ROOT"/../../desktop-client
