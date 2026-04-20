@@ -142,15 +142,7 @@ Even when sufficient history exists, Layer 2 only overrides Layer 1 if the neare
 
 ---
 
-## 11. MLflow Server Reachability Check
-
-**File:** `training/train.py:84–93`
-
-Before starting a training run, the script pings the MLflow tracking URI with a 5-second timeout. If the server is unreachable, a `RuntimeError` is raised immediately. This fail-fast behavior prevents silent fallback to the local file store, which would make the run invisible to the experiment tracking dashboard.
-
----
-
-## 12. Git SHA Traceability
+## 11. Git SHA Traceability
 
 **File:** `training/train.py:306`, `training/retrain.py:131`
 
@@ -158,7 +150,7 @@ Every MLflow run is tagged with the `git_sha` of the commit used to produce it. 
 
 ---
 
-## 13. FastText Learning Rate Guard
+## 12. FastText Learning Rate Guard
 
 **File:** `training/models/layer1/fasttext.py:112–118`
 
@@ -166,7 +158,7 @@ FastText is known to produce NaN loss when `lr >= 1.2`. A runtime check validate
 
 ---
 
-## 14. Gradient Clipping (Transformers)
+## 13. Gradient Clipping (Transformers)
 
 **File:** `training/models/layer1/transformer_base.py:241`
 
@@ -174,7 +166,7 @@ Transformer models use `torch.nn.utils.clip_grad_norm_(max_norm=1.0)` on every b
 
 ---
 
-## 15. Batch Inference to Prevent OOM
+## 14. Batch Inference to Prevent OOM
 
 **File:** `training/models/layer1/transformer_base.py:82–84`
 
@@ -182,28 +174,8 @@ Transformer inference over the validation set is chunked into batches of 64. Thi
 
 ---
 
-## 16. Atomic User Store Writes
 
-**File:** `model_pipeline/layer2/user_store.py:44–47`
-
-The Layer 2 user store is written atomically:
-
-1. Serialized to a `.tmp` file.
-2. Renamed to the final path using `os.replace()`.
-
-`os.replace()` is atomic on POSIX systems. This means a crash or interruption during a write cannot leave the store in a partially-written state.
-
----
-
-## 17. Embedding Normalization Guard
-
-**File:** `model_pipeline/layer2/embedder.py:33–37`
-
-Before cosine similarity is computed, all embeddings are L2-normalized. Norms are clamped to a minimum of `1e-9` before division to prevent divide-by-zero on zero-length vectors (e.g., empty payee strings after normalization).
-
----
-
-## 18. Zero-Division Handling in Classification Reports
+## 15 Zero-Division Handling in Classification Reports
 
 **File:** `training/evaluate.py:73, 80`
 
@@ -211,7 +183,7 @@ All `classification_report()` calls pass `zero_division=0`. If a class receives 
 
 ---
 
-## 19. Class Weight Balancing
+## 16. Class Weight Balancing
 
 **File:** `training/models/layer1/tfidf_logreg.py:56`  
 **Config:** `config.yaml: tfidf_logreg.class_weight: balanced`
@@ -220,29 +192,8 @@ The logistic regression model uses `class_weight="balanced"`, which adjusts the 
 
 ---
 
-## 20. Temp File Cleanup on Retraining
 
-**File:** `training/retrain.py:123–167`
 
-The downloaded retraining dataset is stored in a system temp file. The entire training block is wrapped in `try/finally` to guarantee the temp file is deleted even if training fails or the quality gate raises `SystemExit`. This prevents incremental disk exhaustion on repeated retraining runs.
-
----
-
-## 21. NumPy Version Compatibility Check
-
-**File:** `training/models/layer1/fasttext.py:32–37`
-
-FastText-wheel 0.9.2 is incompatible with NumPy 2.x. A runtime import check validates `numpy.__version__ < "2"` and raises an `ImportError` with a clear explanation if violated. The `requirements.txt` pins `numpy==1.26.*` to prevent accidental upgrades.
-
----
-
-## 22. Sweep Failure Tracking
-
-**File:** `training/sweep-cpu.py:104, 129`
-
-The hyperparameter sweep script tracks failed individual runs and exits with code 1 if any run fails. It also supports a `--dry-run` flag to print all planned configurations before executing, allowing validation of the sweep grid without triggering actual training.
-
----
 
 ## Summary
 
@@ -258,15 +209,9 @@ The hyperparameter sweep script tracks failed individual runs and exits with cod
 | Unknown category filtering | `evaluate.py:159–170` | Drops + logs `dropped_rows` |
 | Layer 2 cold-start guard | `predictor.py:86` | Falls back to Layer 1 |
 | Layer 2 confidence threshold | `layer2/config.yaml` | Falls back to Layer 1 |
-| MLflow server reachability | `train.py:84–93` | `RuntimeError` (fail fast) |
 | Git SHA traceability | `train.py:306` | Logged to every MLflow run |
 | FastText LR guard | `fasttext.py:112–118` | `ValueError` |
 | Gradient clipping | `transformer_base.py:241` | Silent (clamps gradient) |
 | Batch inference (OOM guard) | `transformer_base.py:82` | Prevents OOM |
-| Atomic store writes | `user_store.py:44–47` | Prevents store corruption |
-| Embedding normalization guard | `embedder.py:33–37` | Prevents divide-by-zero |
 | Zero-division in reports | `evaluate.py:73,80` | Returns 0 for empty classes |
 | Class weight balancing | `tfidf_logreg.py:56` | Config-driven |
-| Temp file cleanup | `retrain.py:164–167` | Always runs (try/finally) |
-| NumPy version check | `fasttext.py:32–37` | `ImportError` |
-| Sweep failure tracking | `sweep-cpu.py:129` | `sys.exit(1)` if any fail |
