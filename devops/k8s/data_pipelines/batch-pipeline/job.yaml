@@ -30,7 +30,7 @@ spec:
                 name: proj06-env
           env:
             - name: FEEDBACK_URL
-              value: "http://serving-service.mlops.svc.cluster.local:8000/feedback/export"
+              value: "http://transaction-classifier.mlops.svc.cluster.local:8000/feedback/export"
             - name: MINIO_ENDPOINT
               value: "http://minio.mlops.svc.cluster.local:9000"
             - name: MINIO_ACCESS_KEY
