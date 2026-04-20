@@ -8,8 +8,9 @@ data:
     global:
       scrape_interval: 30s
       evaluation_interval: 30s
-      rule_files:
-        - /etc/prometheus/alerts.yml
+
+    rule_files:
+      - /etc/prometheus/alerts.yml
 
     alerting:
       alertmanagers: []
@@ -118,6 +119,8 @@ spec:
         project: proj06
     spec:
       serviceAccountName: prometheus
+      nodeSelector:
+        kubernetes.io/hostname: mlops-k8s-proj06
       containers:
         - name: prometheus
           image: prom/prometheus:v2.51.0
