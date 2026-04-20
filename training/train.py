@@ -208,8 +208,9 @@ def upload_processed_to_minio(cfg: dict, processed_dir: str) -> None:
         return
 
     try:
-        endpoint = minio_cfg["endpoint"].replace("http://", "").replace("https://", "")
-        secure   = minio_cfg["endpoint"].startswith("https://")
+        endpoint_url = os.environ.get("MINIO_ENDPOINT_URL", minio_cfg["endpoint"])
+        endpoint = endpoint_url.replace("http://", "").replace("https://", "")
+        secure   = endpoint_url.startswith("https://")
         client   = Minio(
             endpoint,
             access_key=os.environ.get("MINIO_ACCESS_KEY", minio_cfg.get("access_key", "minioadmin")),

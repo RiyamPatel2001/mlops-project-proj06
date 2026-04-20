@@ -47,7 +47,7 @@ MINIO_ENDPOINT   = os.environ.get("MINIO_ENDPOINT",   "http://10.43.4.193:9000")
 MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "minioadmin123")
 MINIO_BUCKET     = os.environ.get("MINIO_BUCKET",     "data")
-MINIO_PREFIX     = "retraining"
+MINIO_PREFIX     = os.environ.get("MINIO_PREFIX", "data/retraining")
 
 
 def get_minio_client():
@@ -211,31 +211,17 @@ def run_pipeline(feedback_rows, version=None):
     print(f"[batch]   Val:   {len(val_rows):,} records "
           f"({val_rows[0]['date']} to {val_rows[-1]['date']})")
 
-    # Step 5: Build training format
-    def amount_bin(amount_cents):
-        dollars = abs(int(amount_cents)) / 100
-        if dollars < 20:   return "low"
-        if dollars < 50:   return "medium_low"
-        if dollars < 150:  return "medium"
-        if dollars < 500:  return "medium_high"
-        return "high"
-
-    def day_of_week(date_str):
-        return datetime.strptime(date_str, "%Y-%m-%d").strftime("%A")
-
+    # Step 5: Build training-format rows expected by the retraining job
     def to_training_row(r, split):
-        payee          = str(r.get("payee", "")).strip().upper()
-        amount_cents   = int(r.get("amount", 0))
-        date_str       = r.get("date", "2023-01-01")
-        feature_vector = f"{payee} | amount:{amount_bin(amount_cents)} | day:{day_of_week(date_str)}"
         return {
             "transaction_id": r.get("transaction_id", ""),
             "user_id":        r.get("user_id", ""),
-            "feature_vector": feature_vector,
-            "label":          r.get("final_label", ""),
+            "payee":          str(r.get("payee", "")).strip().upper(),
+            "category":       r.get("final_label", ""),
+            "amount":         r.get("amount", 0),
+            "date":           r.get("date", "2023-01-01"),
             "split":          split,
             "source":         "feedback",
-            "date":           date_str,
         }
 
     train_out = [to_training_row(r, "train") for r in train_rows]
@@ -250,7 +236,16 @@ def run_pipeline(feedback_rows, version=None):
     manifest_key = f"{MINIO_PREFIX}/retraining_manifest_v{version}.json"
 
     # Build CSV string
-    fieldnames = ["transaction_id", "user_id", "feature_vector", "label", "split", "source", "date"]
+    fieldnames = [
+        "transaction_id",
+        "user_id",
+        "payee",
+        "category",
+        "amount",
+        "date",
+        "split",
+        "source",
+    ]
     csv_buffer = io.StringIO()
     writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
     writer.writeheader()

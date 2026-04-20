@@ -49,7 +49,7 @@ data:
           "id": 1,
           "type": "stat",
           "title": "Classifier Status",
-          "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+          "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
           "targets": [
             {
               "expr": "up{job=\"transaction-classifier\"}",
@@ -72,34 +72,13 @@ data:
         {
           "id": 2,
           "type": "stat",
-          "title": "MLflow Status",
-          "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+          "title": "DB Connected",
+          "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
           "targets": [
             {
-              "expr": "up{job=\"mlflow\"}",
-              "legendFormat": "mlflow"
+              "expr": "serving_db_connected",
+              "legendFormat": "db"
             }
-          ],
-          "options": {
-            "colorMode": "background",
-            "reduceOptions": {"calcs": ["lastNotNull"]}
-          },
-          "fieldConfig": {
-            "defaults": {
-              "mappings": [
-                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
-              ],
-              "thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 1, "color": "green"}]}
-            }
-          }
-        },
-        {
-          "id": 3,
-          "type": "stat",
-          "title": "DB Connected",
-          "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
-          "targets": [
-            {"expr": "serving_db_connected", "legendFormat": "db"}
           ],
           "options": {
             "colorMode": "background",
@@ -115,12 +94,12 @@ data:
           }
         },
         {
-          "id": 4,
+          "id": 3,
           "type": "stat",
-          "title": "Total Classify Requests",
-          "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+          "title": "Error Rate (10m)",
+          "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
           "targets": [
-            {"expr": "serving_requests_total", "legendFormat": "requests"}
+            {"expr": "serving:classify_error_rate_10m", "legendFormat": "error rate"}
           ],
           "options": {
             "colorMode": "value",
@@ -128,20 +107,41 @@ data:
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "short",
-              "thresholds": {"steps": [{"value": 0, "color": "blue"}]}
+              "unit": "percentunit",
+              "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 0.05, "color": "red"}]}
+            }
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Promotion Readiness",
+          "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+          "targets": [
+            {"expr": "serving:promotion_ready_24h", "legendFormat": "ready"}
+          ],
+          "options": {
+            "colorMode": "background",
+            "reduceOptions": {"calcs": ["lastNotNull"]}
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {"type": "value", "options": {"0": {"text": "NOT READY", "color": "orange"}, "1": {"text": "READY", "color": "green"}}}
+              ],
+              "thresholds": {"steps": [{"value": 0, "color": "orange"}, {"value": 1, "color": "green"}]}
             }
           }
         },
         {
           "id": 5,
           "type": "timeseries",
-          "title": "Classify Request Rate (req/s)",
+          "title": "Request Rate By Source",
           "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
           "targets": [
             {
-              "expr": "rate(serving_requests_total[2m])",
-              "legendFormat": "req/s"
+              "expr": "sum by (source) (rate(serving_classify_requests_total{status=\"success\"}[5m]))",
+              "legendFormat": "{{source}}"
             }
           ],
           "fieldConfig": {
@@ -155,31 +155,118 @@ data:
         {
           "id": 6,
           "type": "timeseries",
-          "title": "Prometheus Scrape Success",
+          "title": "P95 Latency",
           "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
           "targets": [
-            {"expr": "up{job=~\"transaction-classifier|mlflow|minio\"}", "legendFormat": "{{job}}"}
+            {"expr": "serving:classify_latency_p95_10m", "legendFormat": "p95"}
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "short",
-              "min": 0, "max": 1,
-              "color": {"mode": "palette-classic"}
+              "unit": "s",
+              "color": {"mode": "palette-classic"},
+              "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 1.5, "color": "red"}]}
             }
           }
         },
         {
           "id": 7,
+          "type": "timeseries",
+          "title": "Low Confidence Ratio (<= 0.60)",
+          "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+          "targets": [
+            {"expr": "serving:low_confidence_ratio_30m", "legendFormat": "low confidence"}
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "color": {"mode": "palette-classic"},
+              "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 0.35, "color": "red"}]}
+            }
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "User Correction Rate",
+          "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+          "targets": [
+            {"expr": "serving:feedback_correction_rate_2h", "legendFormat": "corrected"}
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "color": {"mode": "palette-classic"},
+              "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 0.25, "color": "red"}]}
+            }
+          }
+        },
+        {
+          "id": 9,
+          "type": "bargauge",
+          "title": "Prediction Output Mix (24h)",
+          "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+          "targets": [
+            {
+              "expr": "sum by (category_group) (increase(serving_prediction_outputs_total[24h]))",
+              "legendFormat": "{{category_group}}"
+            }
+          ],
+          "options": {
+            "displayMode": "basic",
+            "orientation": "horizontal",
+            "reduceOptions": {"calcs": ["lastNotNull"]}
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {"mode": "palette-classic"}
+            }
+          }
+        },
+        {
+          "id": 10,
+          "type": "bargauge",
+          "title": "Feedback Outcomes (24h)",
+          "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+          "targets": [
+            {
+              "expr": "sum by (outcome) (increase(serving_feedback_total{status=\"success\"}[24h]))",
+              "legendFormat": "{{outcome}}"
+            }
+          ],
+          "options": {
+            "displayMode": "basic",
+            "orientation": "horizontal",
+            "reduceOptions": {"calcs": ["lastNotNull"]}
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {"mode": "palette-classic"}
+            }
+          }
+        },
+        {
+          "id": 11,
+          "type": "table",
+          "title": "Active Model Versions",
+          "gridPos": {"x": 0, "y": 28, "w": 12, "h": 7},
+          "targets": [
+            {"expr": "serving_model_info", "legendFormat": "{{tier}}"}
+          ]
+        },
+        {
+          "id": 12,
           "type": "text",
-          "title": "Active Model Version",
-          "gridPos": {"x": 0, "y": 12, "w": 24, "h": 3},
+          "title": "Trigger Policy",
+          "gridPos": {"x": 12, "y": 28, "w": 12, "h": 7},
           "options": {
             "mode": "markdown",
-            "content": "Model version is shown in the `serving_model_info` metric — query Prometheus: `serving_model_info`"
+            "content": "### Trigger policy\n\n- Promote only when offline retraining beats production by at least 1 accuracy point and `Promotion Readiness` stays READY.\n- Roll back when user correction rate stays above 25%, low-confidence predictions stay above 35%, or classify errors exceed 5% after a rollout.\n- Treat latency as an operational warning first; it becomes a rollback signal only when quality metrics also regress."
           }
         }
       ],
-      "time": {"from": "now-3h", "to": "now"},
+      "time": {"from": "now-24h", "to": "now"},
       "timepicker": {}
     }
 ---

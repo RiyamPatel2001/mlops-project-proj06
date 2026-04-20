@@ -17,7 +17,7 @@ model: fasttext
 # Paths are relative to the training/ directory (where train.py lives).
 # In Docker (WORKDIR=/app/training), data is volume-mounted at /app/data.
 data:
-  raw_path:      "http://10.43.4.193:9000/data/raw/train.csv"
+  raw_path:      "http://minio.mlops.svc.cluster.local:9000/data/raw/train.csv"
   processed_dir: ../data/processed/
   retraining_prefix: "data/retraining/"
 
@@ -33,9 +33,19 @@ mlflow:
   tracking_uri:    http://129.114.26.157:30500    # swap for Chameleon VM IP at runtime
   experiment_name: layer1-categorizer
 
+promotion:
+  target_tier: fast
+  registry_path: ../serving/layer1_registry.json
+  minimum_accuracy_delta: 0.01
+  bootstrap:
+    model_name: fasttext
+    model_kind: fasttext
+    run_id: e99c0f7fe5554fd584c9efd2162f5572
+    artifact_path: fasttext.bin
+
 # ── MinIO (for storing data) ─────────────────────────────
 minio:
-  endpoint: "http://10.43.4.193:9000"
+  endpoint: "http://minio.mlops.svc.cluster.local:9000"
   access_key: "minioadmin"
   secret_key: "minioadmin123"
   bucket: "data"
@@ -74,4 +84,3 @@ mpnet:
   batch_size:       32       # all-mpnet is same size as MiniLM (768-dim), RTX 6000 handles 32
   warmup_steps:     100
   max_length:       128      # more than enough for payee strings; matches mpnet's sweet spot
-

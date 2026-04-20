@@ -6,6 +6,12 @@
  * ActualBudget on 30506 and the classifier on 30508.
  */
 
+declare global {
+  interface Window {
+    __ML_SERVING_URL__?: string;
+  }
+}
+
 function resolveBrowserDefaultServingUrl() {
   if (typeof window === 'undefined') {
     return 'http://localhost:8000';
@@ -21,8 +27,7 @@ function resolveBrowserDefaultServingUrl() {
 }
 
 const ML_SERVING_URL =
-  (typeof window !== 'undefined' &&
-    (window as Record<string, unknown>).__ML_SERVING_URL__) ||
+  (typeof window !== 'undefined' && window.__ML_SERVING_URL__) ||
   resolveBrowserDefaultServingUrl();
 
 function delay(ms: number) {

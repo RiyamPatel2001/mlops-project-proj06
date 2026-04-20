@@ -36,3 +36,18 @@ python generate_transactions.py --year 2024 --input_files fmli241x.csv fmli242.c
 
 ### Output
 - `category` — one of 29 spending categories
+
+## Monitoring And Triggers
+
+- Prometheus scrapes the serving app `/metrics` endpoint and tracks model-output volume, confidence histograms, request latency, router state, and feedback quality.
+- Model output is monitored through `serving_prediction_outputs_total` and `serving_prediction_confidence`, with custom Layer 2 labels collapsed into `__custom__` to avoid unbounded metric cardinality.
+- User feedback is monitored through `serving_feedback_total`, `serving_feedback_original_confidence`, and `serving_suggestion_responses_total`.
+- Promotion is intentionally conservative: retraining now requires at least a 1 percentage point offline accuracy gain before it updates the production registry.
+- Rollback triggers are driven by live behavior: user correction rate above 25% over 2 hours, low-confidence ratio above 35% over 30 minutes, or classify error rate above 5% over 10 minutes.
+
+## Adminer
+
+- URL: `http://<cluster-ip>:30081`
+- System: `PostgreSQL`
+- Server: `postgres`
+- Username / password / database: use the values from the `postgres-credentials` secret

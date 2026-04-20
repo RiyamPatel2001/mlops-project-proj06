@@ -11,6 +11,14 @@ MLFLOW_TRACKING_URI = os.getenv(
     "http://mlflow-proj06.mlops.svc.cluster.local:5000",
 )
 
+MODEL_REGISTRY_PATH = os.getenv(
+    "MODEL_REGISTRY_PATH",
+    "/app/models/layer1_registry.json",
+)
+MODEL_REGISTRY_REFRESH_SECONDS = float(
+    os.getenv("MODEL_REGISTRY_REFRESH_SECONDS", "30")
+)
+
 LAYER1_HF_MAX_LENGTH = int(os.getenv("LAYER1_HF_MAX_LENGTH", "128"))
 
 TIER_GOOD_MODEL_NAME = os.getenv("TIER_GOOD_MODEL_NAME", "minilm")
