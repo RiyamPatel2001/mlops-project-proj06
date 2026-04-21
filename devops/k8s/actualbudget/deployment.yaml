@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
         - name: actualbudget
-          image: ghcr.io/riyampatel2001/mlops-project-proj06/actual-custom:d1616dda3169d8abb1c6592f16a59289fc5fb227
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/actual-custom:341286ee32a9531c2417c07d66980d27389dbebe
           imagePullPolicy: Always
           ports:
             - name: http
