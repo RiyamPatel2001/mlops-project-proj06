@@ -83,6 +83,8 @@ spec:
               value: "/app/models/layer1_registry.json"
             - name: MODEL_REGISTRY_REFRESH_SECONDS
               value: "30"
+            - name: MLFLOW_ARTIFACT_CACHE_DIR
+              value: "/app/models/artifact_cache"
           resources:
             requests:
               cpu: "200m"
@@ -101,9 +103,9 @@ spec:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 120
-            periodSeconds: 10
-            failureThreshold: 5
+            initialDelaySeconds: 240
+            periodSeconds: 15
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /health
