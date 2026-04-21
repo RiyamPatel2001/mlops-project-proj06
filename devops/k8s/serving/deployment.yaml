@@ -31,17 +31,12 @@ metadata:
     argocd-image-updater.argoproj.io/classifier.update-strategy: latest
     argocd-image-updater.argoproj.io/write-back-method: git
     argocd-image-updater.argoproj.io/git-branch: refactor-project
+    kubernetes.io/change-cause: "retrain: minilm b8f1ad84, fasttext 5af29fba, tfidf bd19d31c"
 spec:
   replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      # maxSurge: 0 — never spin up an extra pod before the old one is gone.
-      # Required because serving-models-pvc is RWO (ReadWriteOnce): only one
-      # pod may mount it at a time. With maxSurge=0 Kubernetes terminates the
-      # old replica first, then starts the new one — safe, progressive rollout.
-      # Demo: shows ArgoCD-driven rolling update; rollback via
-      #   kubectl rollout undo deploy/transaction-classifier -n mlops
       maxSurge: 0
       maxUnavailable: 1
   selector:
@@ -59,7 +54,7 @@ spec:
         kubernetes.io/hostname: proj06-node3
       containers:
         - name: fastapi
-          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:3dc101106295e367fd283cd5c45dc7a481dd51d5
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:9d4e416f59e4a23271b63649afabf0abcefd1155
           imagePullPolicy: Always
           ports:
             - name: http
@@ -83,6 +78,18 @@ spec:
               value: "/app/models/layer1_registry.json"
             - name: MODEL_REGISTRY_REFRESH_SECONDS
               value: "30"
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: "http://minio:9000"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: accesskey
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: secretkey
             - name: MLFLOW_ARTIFACT_CACHE_DIR
               value: "/app/models/artifact_cache"
           resources:
