@@ -34,7 +34,16 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      # maxSurge: 0 — never spin up an extra pod before the old one is gone.
+      # Required because serving-models-pvc is RWO (ReadWriteOnce): only one
+      # pod may mount it at a time. With maxSurge=0 Kubernetes terminates the
+      # old replica first, then starts the new one — safe, progressive rollout.
+      # Demo: shows ArgoCD-driven rolling update; rollback via
+      #   kubectl rollout undo deploy/transaction-classifier -n mlops
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: transaction-classifier
