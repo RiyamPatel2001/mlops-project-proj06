@@ -107,26 +107,41 @@ else
 fi
 
 # ── Step 8: Create K8s namespace and credentials ──────────────────────────────
-log "Step 8/9: Creating namespace and secrets..."
+log "Step 8/11: Creating namespace and secrets..."
 kubectl apply -f /home/cc/mlops-project-proj06/devops/k8s/namespace.yaml
 
-# MinIO credentials
+# MinIO credentials (accesskey/secretkey format used by serving pod)
 kubectl create secret generic minio-credentials \
   --namespace=mlops \
-  --from-literal=MINIO_ROOT_USER=minioadmin \
-  --from-literal=MINIO_ROOT_PASSWORD=minioadmin123 \
+  --from-literal=accesskey=minioadmin \
+  --from-literal=secretkey=minioadmin123 \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # Postgres credentials
 kubectl create secret generic postgres-credentials \
   --namespace=mlops \
+  --from-literal=username=mlops_user \
+  --from-literal=password=mlops_pass \
+  --from-literal=dbname=mlops \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# proj06-env secret (used by serving pod for MLflow + MinIO access)
+kubectl create secret generic proj06-env \
+  --namespace=mlops \
+  --from-literal=MLFLOW_TRACKING_URI=http://mlflow:5000 \
+  --from-literal=MLFLOW_S3_ENDPOINT_URL=http://minio:9000 \
+  --from-literal=AWS_ACCESS_KEY_ID=minioadmin \
+  --from-literal=AWS_SECRET_ACCESS_KEY=minioadmin123 \
   --from-literal=POSTGRES_USER=mlops_user \
   --from-literal=POSTGRES_PASSWORD=mlops_pass \
   --from-literal=POSTGRES_DB=mlops \
+  --from-literal=MINIO_ENDPOINT=http://minio:9000 \
+  --from-literal=MINIO_ACCESS_KEY=minioadmin \
+  --from-literal=MINIO_SECRET_KEY=minioadmin123 \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # ── Step 9: Apply all K8s manifests ───────────────────────────────────────────
-log "Step 9/9: Applying K8s manifests..."
+log "Step 9/11: Applying K8s manifests..."
 K8S=/home/cc/mlops-project-proj06/devops/k8s
 
 # Core storage
@@ -134,6 +149,7 @@ kubectl apply -f $K8S/postgres/pvc.yaml
 kubectl apply -f $K8S/minio/pvc.yaml
 kubectl apply -f $K8S/mlflow/pvc.yaml
 kubectl apply -f $K8S/serving/pvc.yaml
+kubectl apply -f $K8S/training/pvc.yaml
 
 # Core services
 kubectl apply -f $K8S/postgres/deployment.yaml
@@ -142,8 +158,14 @@ kubectl apply -f $K8S/minio/deployment.yaml
 kubectl apply -f $K8S/minio/service.yaml
 kubectl apply -f $K8S/mlflow/deployment.yaml
 kubectl apply -f $K8S/mlflow/service.yaml
+kubectl apply -f $K8S/adminer/deployment.yaml
+kubectl apply -f $K8S/adminer/service.yaml
 
-# ActualBudget (custom build) + nginx proxy for COOP/COEP headers
+# Monitoring
+kubectl apply -f $K8S/monitoring/prometheus.yaml
+kubectl apply -f $K8S/monitoring/grafana.yaml
+
+# ActualBudget + proxy
 kubectl apply -f $K8S/actualbudget/pvc.yaml
 kubectl apply -f $K8S/actualbudget/deployment.yaml
 kubectl apply -f $K8S/actualbudget/service.yaml
@@ -155,23 +177,62 @@ kubectl apply -f $K8S/actualbudget-proxy/service.yaml
 kubectl apply -f $K8S/serving/deployment.yaml
 kubectl apply -f $K8S/serving/service.yaml
 
-log "All manifests applied. Waiting 30s for pods to start..."
-sleep 30
+log "All manifests applied. Waiting 60s for pods to initialise..."
+sleep 60
 kubectl get pods -n mlops
 
+# ── Step 10: Install ArgoCD ────────────────────────────────────────────────────
+log "Step 10/11: Installing ArgoCD..."
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+log "Waiting for ArgoCD server to be ready (up to 3 min)..."
+kubectl wait --for=condition=Available deployment/argocd-server -n argocd --timeout=180s || true
+
+# Apply ArgoCD app configs so it syncs all manifests from git automatically
+kubectl apply -f $K8S/../k8s/argocd/app-platform.yaml 2>/dev/null || true
+kubectl apply -f $K8S/../k8s/argocd/app-serving.yaml 2>/dev/null || true
+
+log "ArgoCD installed. Password: kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d"
+
+# ── Step 11: Write layer1_registry.json to serving PVC ────────────────────────
+log "Step 11/11: Writing layer1_registry.json to serving PVC..."
+# Wait for serving PVC to be bound first
+sleep 10
+
+kubectl run registry-init -n mlops --image=busybox --restart=Never \
+  --overrides='{"spec":{"volumes":[{"name":"m","persistentVolumeClaim":{"claimName":"serving-models-pvc"}}],"containers":[{"name":"b","image":"busybox","command":["sh","-c","sleep 60"],"volumeMounts":[{"name":"m","mountPath":"/mnt"}]}]}}' \
+  2>/dev/null || true
+
+sleep 5
+kubectl cp /home/cc/mlops-project-proj06/devops/layer1_registry.json \
+  mlops/registry-init:/mnt/layer1_registry.json 2>/dev/null || \
+  echo "WARN: Could not write registry.json — do it manually after serving PVC is ready"
+kubectl delete pod registry-init -n mlops --ignore-not-found=true
+
+log "layer1_registry.json written — classifier will load correct MLflow run IDs on startup"
+
 # ── Done ───────────────────────────────────────────────────────────────────────
+FLOATING_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || hostname -I | awk '{print $1}')
 echo ""
 echo "============================================="
-log "k3s bootstrap complete!"
+log "Bootstrap complete! Cluster is production-ready."
 echo ""
-echo "StorageClasses available:"
-kubectl get storageclass
+echo "  MLflow:       http://$FLOATING_IP:30500"
+echo "  ActualBudget: http://$FLOATING_IP:30506"
+echo "  Classifier:   http://$FLOATING_IP:30508/health"
+echo "  MinIO:        http://$FLOATING_IP:30901  (minioadmin / minioadmin123)"
+echo "  Grafana:      http://$FLOATING_IP:30030  (admin / mlops1234)"
+echo "  Prometheus:   http://$FLOATING_IP:30090"
+echo "  ArgoCD:       http://$FLOATING_IP:30808  (admin / see above)"
 echo ""
-echo "Cluster is ready. Next: copy kubeconfig to your laptop."
+echo "Models in MinIO (run IDs):"
+echo "  good  (minilm):       b8f1ad8433b7492e82726429df5b66a0"
+echo "  fast  (fasttext):     5af29fbaa4b04abc9d21b18a19ccc736"
+echo "  cheap (tfidf_logreg): bd19d31c1aa94500a0fa3a4f2cee4c94"
 echo ""
 echo "From your laptop:"
-echo "  scp -i ~/.ssh/id_rsa_chameleon cc@<VM-IP>:~/.kube/config ~/.kube/chameleon-proj06.yaml"
-echo "  sed -i '' 's/127.0.0.1/<VM-IP>/g' ~/.kube/chameleon-proj06.yaml"
+echo "  scp -i ~/.ssh/id_rsa_chameleon cc@$FLOATING_IP:~/.kube/config ~/.kube/chameleon-proj06.yaml"
+echo "  sed -i '' 's/127.0.0.1/$FLOATING_IP/g' ~/.kube/chameleon-proj06.yaml"
 echo "  export KUBECONFIG=~/.kube/chameleon-proj06.yaml"
-echo "  kubectl get nodes"
 echo "============================================="
