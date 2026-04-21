@@ -45,6 +45,15 @@ python generate_transactions.py --year 2024 --input_files fmli241x.csv fmli242.c
 - Promotion is intentionally conservative: retraining now requires at least a 1 percentage point offline accuracy gain before it updates the production registry.
 - Rollback triggers are driven by live behavior: user correction rate above 25% over 2 hours, low-confidence ratio above 35% over 30 minutes, or classify error rate above 5% over 10 minutes.
 
+## Component READMEs
+
+| README | What it covers |
+|---|---|
+| [`training/README.md`](training/README.md) | Layer 1 training pipeline — supported models, Docker build/run for CPU, GPU, sweep, and retraining |
+| [`model_pipeline/layer2/README.md`](model_pipeline/layer2/README.md) | Layer 2 personalization — inference, building the user store, and both evaluation scripts |
+| [`devops/README.md`](devops/README.md) | Kubernetes cluster setup on Chameleon — Terraform, Ansible, k3s bootstrap, and all platform services |
+| [`serving/serving_initial/README.md`](serving/serving_initial/README.md) | Serving evaluation — latency/throughput benchmarks across models, FastText + FastAPI selection rationale |
+
 ## Adminer
 
 - URL: `http://<cluster-ip>:30081`
