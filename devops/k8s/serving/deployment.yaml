@@ -34,7 +34,16 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      # maxSurge: 0 — never spin up an extra pod before the old one is gone.
+      # Required because serving-models-pvc is RWO (ReadWriteOnce): only one
+      # pod may mount it at a time. With maxSurge=0 Kubernetes terminates the
+      # old replica first, then starts the new one — safe, progressive rollout.
+      # Demo: shows ArgoCD-driven rolling update; rollback via
+      #   kubectl rollout undo deploy/transaction-classifier -n mlops
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: transaction-classifier
@@ -50,7 +59,7 @@ spec:
         kubernetes.io/hostname: proj06-node3
       containers:
         - name: fastapi
-          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:9d4e416f59e4a23271b63649afabf0abcefd1155
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:ad52b507406da26112d24d1a4a3f110359a4110d
           imagePullPolicy: Always
           ports:
             - name: http
@@ -74,6 +83,8 @@ spec:
               value: "/app/models/layer1_registry.json"
             - name: MODEL_REGISTRY_REFRESH_SECONDS
               value: "30"
+            - name: MLFLOW_ARTIFACT_CACHE_DIR
+              value: "/app/models/artifact_cache"
           resources:
             requests:
               cpu: "200m"
@@ -92,9 +103,9 @@ spec:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 120
-            periodSeconds: 10
-            failureThreshold: 5
+            initialDelaySeconds: 240
+            periodSeconds: 15
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /health

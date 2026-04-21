@@ -44,6 +44,7 @@ spec:
                 --backend-store-uri "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}" \
                 --artifacts-destination s3://mlflow-artifacts/ \
                 --serve-artifacts \
+                --gunicorn-opts "--timeout 300" \
                 --host 0.0.0.0 \
                 --port 5000
           ports:
@@ -51,6 +52,8 @@ spec:
               containerPort: 5000
               protocol: TCP
           env:
+            - name: GUNICORN_CMD_ARGS
+              value: "--timeout 300"
             - name: MLFLOW_S3_ENDPOINT_URL
               value: http://minio:9000
             - name: POSTGRES_USER
