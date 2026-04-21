@@ -59,7 +59,7 @@ spec:
         kubernetes.io/hostname: proj06-node3
       containers:
         - name: fastapi
-          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:5ad5ddbfa2811b6f3b4d9cc0776981dcfca03106
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:3dc101106295e367fd283cd5c45dc7a481dd51d5
           imagePullPolicy: Always
           ports:
             - name: http
