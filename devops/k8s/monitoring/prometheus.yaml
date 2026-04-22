@@ -193,8 +193,6 @@ spec:
         project: proj06
     spec:
       serviceAccountName: prometheus
-      nodeSelector:
-        kubernetes.io/hostname: mlops-k8s-proj06
       containers:
         - name: prometheus
           image: prom/prometheus:v2.51.0
