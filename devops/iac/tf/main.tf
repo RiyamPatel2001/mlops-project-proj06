@@ -129,6 +129,7 @@ resource "openstack_networking_port_v2" "sharednet1_ports" {
     openstack_networking_secgroup_v2.grafana.id,
     openstack_networking_secgroup_v2.prometheus.id,
     openstack_networking_secgroup_v2.argocd.id,
+    openstack_networking_secgroup_v2.adminer.id,
   ]
 }
 
@@ -201,6 +202,21 @@ resource "openstack_networking_secgroup_rule_v2" "prometheus_rule" {
   port_range_max    = 30090
   remote_ip_prefix  = "0.0.0.0/0"
   security_group_id = openstack_networking_secgroup_v2.prometheus.id
+}
+
+resource "openstack_networking_secgroup_v2" "adminer" {
+  name        = "allow-30081-${var.suffix}"
+  description = "Adminer NodePort"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "adminer_rule" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30081
+  port_range_max    = 30081
+  remote_ip_prefix  = "0.0.0.0/0"
+  security_group_id = openstack_networking_secgroup_v2.adminer.id
 }
 
 resource "openstack_networking_secgroup_v2" "argocd" {
