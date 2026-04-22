@@ -75,7 +75,7 @@ export function PasswordEnableModal({
       {({ state }) => (
         <>
           <ModalHeader
-            title={t('Revert to server password')}
+            title={t('Switch to local passwords')}
             rightContent={<ModalCloseButton onPress={() => state.close()} />}
           />
 
@@ -121,7 +121,9 @@ export function PasswordEnableModal({
                 color: theme.pageTextLight,
                 paddingTop: 5,
               }}
-              title={t('Type the server password to disable OpenID')}
+              title={t(
+                'Set the shared admin password that will be used after disabling OpenID.',
+              )}
             />
             <Label
               style={{
@@ -137,7 +139,9 @@ export function PasswordEnableModal({
                   ...styles.verySmallText,
                   color: theme.errorText,
                 }}
-                title={t('Multi-user will not work after disabling')}
+                title={t(
+                  'OpenID users will need to be reconfigured for local sign-in after the switch.',
+                )}
               />
             )}
             {error && <ErrorAlert>{error}</ErrorAlert>}

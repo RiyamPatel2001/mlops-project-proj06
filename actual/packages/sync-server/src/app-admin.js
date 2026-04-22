@@ -1,7 +1,8 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 
-import { isAdmin } from './account-db';
+import { changePassword } from './accounts/password';
+import { getActiveLoginMethod, isAdmin } from './account-db';
 import * as UserService from './services/user-service';
 import {
   errorMiddleware,
@@ -47,7 +48,7 @@ app.post('/users', validateSessionMiddleware, async (req, res) => {
     return;
   }
 
-  const { userName, role, displayName, enabled } = req.body || {};
+  const { userName, role, displayName, enabled, password } = req.body || {};
 
   if (!userName || !role) {
     res.status(400).send({
@@ -78,13 +79,32 @@ app.post('/users', validateSessionMiddleware, async (req, res) => {
     return;
   }
 
+  if (getActiveLoginMethod() === 'password' && !password) {
+    res.status(400).send({
+      status: 'error',
+      reason: 'invalid-password',
+      details: 'Password cannot be empty',
+    });
+    return;
+  }
+
   const userId = uuidv4();
   UserService.insertUser(
     userId,
     userName,
     displayName || null,
     enabled ? 1 : 0,
+    role,
   );
+
+  if (password) {
+    const { error } = changePassword(password, userId);
+    if (error) {
+      UserService.deleteUser(userId);
+      res.status(400).send({ status: 'error', reason: error });
+      return;
+    }
+  }
 
   res.status(200).send({ status: 'ok', data: { id: userId } });
 });
@@ -99,7 +119,7 @@ app.patch('/users', validateSessionMiddleware, async (req, res) => {
     return;
   }
 
-  const { id, userName, role, displayName, enabled } = req.body || {};
+  const { id, userName, role, displayName, enabled, password } = req.body || {};
 
   if (!userName || !role) {
     res.status(400).send({
@@ -137,6 +157,14 @@ app.patch('/users', validateSessionMiddleware, async (req, res) => {
     enabled ? 1 : 0,
     role,
   );
+
+  if (password) {
+    const { error } = changePassword(password, userIdInDb);
+    if (error) {
+      res.status(400).send({ status: 'error', reason: error });
+      return;
+    }
+  }
 
   res.status(200).send({ status: 'ok', data: { id: userIdInDb } });
 });

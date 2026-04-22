@@ -3,6 +3,7 @@ export type NewUserEntity = {
   displayName: string;
   role: string;
   enabled: boolean;
+  password?: string;
 };
 
 export type UserEntity = {

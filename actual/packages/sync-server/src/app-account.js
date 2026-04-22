@@ -3,8 +3,8 @@ import rateLimit from 'express-rate-limit';
 
 import {
   bootstrap,
-  getActiveLoginMethod,
   getLoginMethod,
+  isMultiuserAuthEnabled,
   getServerPrefs,
   getUserInfo,
   isAdmin,
@@ -50,7 +50,7 @@ app.get('/needs-bootstrap', (req, res) => {
           ? availableLoginMethods[0].method
           : getLoginMethod(),
       availableLoginMethods,
-      multiuser: getActiveLoginMethod() === 'openid',
+      multiuser: isMultiuserAuthEnabled(),
     },
   });
 });
@@ -114,7 +114,7 @@ app.post('/login', authRateLimiter, async (req, res) => {
     }
 
     default:
-      tokenRes = loginWithPassword(req.body.password);
+      tokenRes = loginWithPassword(req.body.password, req.body.userName);
       break;
   }
   const { error, token } = tokenRes;
@@ -149,7 +149,26 @@ app.post('/change-password', (req, res) => {
     return;
   }
 
-  const { error } = changePassword(req.body.password);
+  const user = getUserInfo(session.user_id);
+  if (!user) {
+    res.status(400).send({ status: 'error', reason: 'user-not-found' });
+    return;
+  }
+
+  const isSharedPasswordAdmin = user.user_name === '';
+  if (isSharedPasswordAdmin && !isAdmin(session.user_id)) {
+    res.status(403).send({
+      status: 'error',
+      reason: 'forbidden',
+      details: 'permission-not-found',
+    });
+    return;
+  }
+
+  const { error } = changePassword(
+    req.body.password,
+    isSharedPasswordAdmin ? null : session.user_id,
+  );
 
   if (error) {
     res.status(400).send({ status: 'error', reason: error });

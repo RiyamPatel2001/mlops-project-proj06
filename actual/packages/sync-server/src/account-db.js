@@ -47,6 +47,10 @@ export function getActiveLoginMethod() {
   return method;
 }
 
+export function isMultiuserAuthEnabled() {
+  return ['password', 'openid'].includes(getActiveLoginMethod());
+}
+
 /*
  * Get the Login Method in the following order
  * req (the frontend can say which method in the case it wants to resort to forcing password auth)
@@ -199,6 +203,15 @@ export async function disableOpenID(loginSettings) {
                                   FROM users
                                   WHERE users.user_name <> ?
                               );`,
+        [''],
+      );
+      accountDb.mutate(
+        `DELETE FROM user_passwords
+         WHERE user_id IN (
+           SELECT users.id
+           FROM users
+           WHERE users.user_name <> ?
+         );`,
         [''],
       );
       accountDb.mutate('DELETE FROM users WHERE user_name <> ?', ['']);

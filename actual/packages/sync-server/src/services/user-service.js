@@ -69,7 +69,34 @@ export function getAllUsers() {
 export function insertUser(userId, userName, displayName, enabled, role) {
   getAccountDb().mutate(
     'INSERT INTO users (id, user_name, display_name, enabled, owner, role) VALUES (?, ?, ?, ?, 0, ?)',
-    [userId, userName, displayName, enabled, role],
+      [userId, userName, displayName, enabled, role],
+  );
+}
+
+export function getUserForPasswordLogin(userName) {
+  if (!userName || typeof userName !== 'string') {
+    return null;
+  }
+
+  return (
+    getAccountDb().first(
+      `SELECT users.id,
+              users.enabled,
+              user_passwords.password_hash as passwordHash
+       FROM users
+       LEFT JOIN user_passwords ON user_passwords.user_id = users.id
+       WHERE users.user_name = ?`,
+      [userName],
+    ) || null
+  );
+}
+
+export function setUserPasswordHash(userId, passwordHash) {
+  getAccountDb().mutate(
+    `INSERT INTO user_passwords (user_id, password_hash)
+     VALUES (?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET password_hash = excluded.password_hash`,
+    [userId, passwordHash],
   );
 }
 
@@ -103,6 +130,9 @@ export function updateUserWithRole(
 }
 
 export function deleteUser(userId) {
+  getAccountDb().mutate('DELETE FROM user_passwords WHERE user_id = ?', [
+    userId,
+  ]);
   return getAccountDb().mutate('DELETE FROM users WHERE id = ? and owner = 0', [
     userId,
   ]).changes;
