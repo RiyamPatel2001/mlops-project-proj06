@@ -17,7 +17,7 @@ model: fasttext
 # Paths are relative to the training/ directory (where train.py lives).
 # In Docker (WORKDIR=/app/training), data is volume-mounted at /app/data.
 data:
-  raw_path:      "http://http://129.114.25.143:30900/data/raw/train.csv"
+  raw_path:      "http://129.114.25.143:30900/data/raw/train.csv"
   processed_dir: ../data/processed/
   retraining_prefix: "data/retraining/"
 
@@ -45,7 +45,7 @@ promotion:
 
 # ── MinIO (for storing data) ─────────────────────────────
 minio:
-  endpoint: "http://129.114.25.143.30900"
+  endpoint: "http://129.114.25.143:30900"
   access_key: "minioadmin"
   secret_key: "minioadmin123"
   bucket: "data"
