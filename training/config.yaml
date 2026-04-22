@@ -30,7 +30,7 @@ model_output_dir: models/layer1/artifacts/
 
 # ── MLflow ────────────────────────────────────────────────────
 mlflow:
-  tracking_uri:    http://129.114.26.157:30500    # swap for Chameleon VM IP at runtime
+  tracking_uri:    http://129.114.25.143:30500    # swap for Chameleon VM IP at runtime
   experiment_name: layer1-categorizer
 
 promotion:
@@ -45,7 +45,7 @@ promotion:
 
 # ── MinIO (for storing data) ─────────────────────────────
 minio:
-  endpoint: "http://minio.mlops.svc.cluster.local:9000"
+  endpoint: "http://129.114.25.143.30900"
   access_key: "minioadmin"
   secret_key: "minioadmin123"
   bucket: "data"

@@ -1,14 +1,14 @@
 mlflow:
-  tracking_uri: "http://129.114.26.157:30500 "
+  tracking_uri: "http://129.114.25.143:30500 "
   experiment_name: "layer2-evaluation"
 
 minio:
-  endpoint: "http://10.43.4.193:9000"
+  endpoint: "http://129.114.25.143.30900"
   bucket: "data"
   object: "processed/train.csv"
 
 data:
-  train_csv: "http://10.43.4.193:9000/data/processed/train.csv"   # kept for reference
+  train_csv: "http://129.114.25.143:30900/data/processed/train.csv"   # kept for reference
 
 layer1:
   model_uri: "runs:/e99c0f7fe5554fd584c9efd2162f5572/fasttext.bin"             # replace with your fastText MLflow run URI
