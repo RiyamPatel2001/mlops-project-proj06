@@ -1,60 +1,53 @@
 # =============================================================================
-# Transaction Classifier (FastAPI) — Deployment
+# Transaction Classifier — Canary Deployment (10% traffic)
 # =============================================================================
-# Inference API for ML transaction categorisation.
-# Built from serving/docker/Dockerfile.fastapi — push image before deploying:
+# Traffic split: stable (9 replicas) + canary (1 replica) = 10% canary
 #
-#   docker build -t ghcr.io/proj06/transaction-classifier:latest \
-#     -f serving/docker/Dockerfile.fastapi serving/
-#   docker push ghcr.io/proj06/transaction-classifier:latest
+# To activate canary with a new model image:
+#   kubectl set image deployment/transaction-classifier-canary \
+#     fastapi=ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:<NEW_SHA> \
+#     -n mlops
+#   kubectl scale deployment/transaction-classifier --replicas=9 -n mlops
+#   kubectl scale deployment/transaction-classifier-canary --replicas=1 -n mlops
 #
-# Model files live on the serving-models-pvc at /app/models.
-# Copy them onto the PVC once the cluster is up (see README for commands).
+# To promote canary (if metrics pass):
+#   kubectl set image deployment/transaction-classifier \
+#     fastapi=ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:<NEW_SHA> \
+#     -n mlops
+#   kubectl scale deployment/transaction-classifier --replicas=1 -n mlops
+#   kubectl scale deployment/transaction-classifier-canary --replicas=0 -n mlops
 #
-# Access: http://<CHAMELEON-FLOATING-IP>:30508/predict
-#         http://<CHAMELEON-FLOATING-IP>:30508/health
+# To rollback canary (if alerts fire):
+#   kubectl scale deployment/transaction-classifier-canary --replicas=0 -n mlops
+#   kubectl scale deployment/transaction-classifier --replicas=1 -n mlops
 # =============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: transaction-classifier
+  name: transaction-classifier-canary
   namespace: mlops
   labels:
     app: transaction-classifier
+    track: canary
     project: proj06
   annotations:
-    # Argo CD Image Updater — automatically deploys new model versions
-    # When serving team pushes ghcr.io/.../transaction-classifier:vX.Y.Z,
-    # Image Updater detects it and commits the updated tag to Git.
-    # Argo CD then syncs the new image to the cluster automatically.
-    argocd-image-updater.argoproj.io/image-list: classifier=ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier
-    argocd-image-updater.argoproj.io/classifier.update-strategy: latest
-    argocd-image-updater.argoproj.io/write-back-method: git
-    argocd-image-updater.argoproj.io/git-branch: refactor-project
-    kubernetes.io/change-cause: "retrain: minilm b8f1ad84, fasttext 5af29fba, tfidf bd19d31c"
+    kubernetes.io/change-cause: "canary: inactive by default — scale to 1 to activate"
 spec:
-  replicas: 1
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 0
-      maxUnavailable: 1
+  replicas: 0
   selector:
     matchLabels:
       app: transaction-classifier
+      track: canary
   template:
     metadata:
       labels:
         app: transaction-classifier
+        track: canary
         project: proj06
     spec:
-      # local-path PVCs are node-local, so serving must stay on the node that
-      # provisions the model/artifact volumes.
-      nodeSelector:
-        kubernetes.io/hostname: proj06-node3
       containers:
         - name: fastapi
-          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:d40dd737a5de3ed0df2394aa936342ea590e2b42
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:latest
           imagePullPolicy: Always
           ports:
             - name: http
@@ -73,7 +66,7 @@ spec:
             - name: LABEL_MAP_PATH
               value: "/app/models/fasttext/label_map.json"
             - name: MODEL_VERSION
-              value: "v1"
+              value: "canary"
             - name: MODEL_REGISTRY_PATH
               value: "/app/models/layer1_registry.json"
             - name: MODEL_REGISTRY_REFRESH_SECONDS

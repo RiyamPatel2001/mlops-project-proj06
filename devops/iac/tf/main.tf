@@ -126,6 +126,10 @@ resource "openstack_networking_port_v2" "sharednet1_ports" {
     openstack_networking_secgroup_v2.serving.id,
     openstack_networking_secgroup_v2.minio_console.id,
     openstack_networking_secgroup_v2.minio_api.id,
+    openstack_networking_secgroup_v2.grafana.id,
+    openstack_networking_secgroup_v2.prometheus.id,
+    openstack_networking_secgroup_v2.argocd.id,
+    openstack_networking_secgroup_v2.adminer.id,
   ]
 }
 
@@ -168,4 +172,64 @@ resource "openstack_blockstorage_volume_v3" "docker_storage" {
 resource "openstack_compute_volume_attach_v2" "docker_storage_attach" {
   instance_id = openstack_compute_instance_v2.nodes["node1"].id
   volume_id   = openstack_blockstorage_volume_v3.docker_storage.id
+}
+
+resource "openstack_networking_secgroup_v2" "grafana" {
+  name        = "allow-30030-${var.suffix}"
+  description = "Grafana NodePort"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "grafana_rule" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30030
+  port_range_max    = 30030
+  remote_ip_prefix  = "0.0.0.0/0"
+  security_group_id = openstack_networking_secgroup_v2.grafana.id
+}
+
+resource "openstack_networking_secgroup_v2" "prometheus" {
+  name        = "allow-30090-${var.suffix}"
+  description = "Prometheus NodePort"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "prometheus_rule" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30090
+  port_range_max    = 30090
+  remote_ip_prefix  = "0.0.0.0/0"
+  security_group_id = openstack_networking_secgroup_v2.prometheus.id
+}
+
+resource "openstack_networking_secgroup_v2" "adminer" {
+  name        = "allow-30081-${var.suffix}"
+  description = "Adminer NodePort"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "adminer_rule" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30081
+  port_range_max    = 30081
+  remote_ip_prefix  = "0.0.0.0/0"
+  security_group_id = openstack_networking_secgroup_v2.adminer.id
+}
+
+resource "openstack_networking_secgroup_v2" "argocd" {
+  name        = "allow-30808-30809-${var.suffix}"
+  description = "ArgoCD NodePorts"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "argocd_http_rule" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30808
+  port_range_max    = 30809
+  remote_ip_prefix  = "0.0.0.0/0"
+  security_group_id = openstack_networking_secgroup_v2.argocd.id
 }

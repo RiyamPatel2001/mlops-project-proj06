@@ -1,0 +1,171 @@
+# =============================================================================
+# Backup CronJobs — proj06
+# =============================================================================
+# 1. postgres-backup  — pg_dump → MinIO s3://data/backups/postgres/ every hour
+# 2. minio-backup     — mc mirror MinIO buckets → /mnt/docker-storage/backup/
+#                       every hour (survives on vdb Cinder volume)
+# =============================================================================
+
+# ── Postgres backup ──────────────────────────────────────────────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: mlops
+  labels:
+    app: postgres-backup
+    project: proj06
+spec:
+  schedule: "0 * * * *"        # every hour
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: postgres-backup
+            project: proj06
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: pg-backup
+              image: postgres:16-alpine
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -e
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  DUMP_FILE="/tmp/mlops_${TIMESTAMP}.sql.gz"
+
+                  echo "Dumping Postgres → ${DUMP_FILE}..."
+                  PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
+                    -h postgres \
+                    -U "${POSTGRES_USER}" \
+                    "${POSTGRES_DB}" | gzip > "${DUMP_FILE}"
+
+                  echo "Uploading to MinIO..."
+                  # Install mc
+                  wget -q https://dl.min.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc
+                  chmod +x /usr/local/bin/mc
+
+                  mc alias set minio http://minio:9000 \
+                    "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}" --quiet
+
+                  mc cp "${DUMP_FILE}" "minio/data/backups/postgres/$(basename ${DUMP_FILE})" --quiet
+
+                  # Keep only last 48 backups (48 hours)
+                  mc ls minio/data/backups/postgres/ | sort | head -n -48 | \
+                    awk '{print $NF}' | \
+                    xargs -I{} mc rm "minio/data/backups/postgres/{}" --quiet 2>/dev/null || true
+
+                  echo "Postgres backup complete: $(basename ${DUMP_FILE})"
+              env:
+                - name: POSTGRES_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-credentials
+                      key: username
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-credentials
+                      key: password
+                - name: POSTGRES_DB
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-credentials
+                      key: dbname
+                - name: MINIO_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: accesskey
+                - name: MINIO_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: secretkey
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "300m"
+                  memory: "256Mi"
+---
+# ── MinIO mirror backup ───────────────────────────────────────────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: minio-backup
+  namespace: mlops
+  labels:
+    app: minio-backup
+    project: proj06
+spec:
+  schedule: "30 * * * *"       # every hour at :30 (offset from postgres backup)
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: minio-backup
+            project: proj06
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: minio-mirror
+              image: minio/mc:latest
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -e
+                  echo "Setting up mc alias..."
+                  mc alias set minio http://minio:9000 \
+                    "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}" --quiet
+
+                  echo "Mirroring mlflow-artifacts → /backup/mlflow-artifacts..."
+                  mc mirror --overwrite --remove \
+                    minio/mlflow-artifacts /backup/mlflow-artifacts --quiet
+
+                  echo "Mirroring data → /backup/data..."
+                  mc mirror --overwrite --remove \
+                    minio/data /backup/data --quiet
+
+                  echo "MinIO mirror backup complete."
+                  du -sh /backup/
+              env:
+                - name: MINIO_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: accesskey
+                - name: MINIO_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: secretkey
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backup
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+          volumes:
+            - name: backup-storage
+              hostPath:
+                path: /mnt/docker-storage/backup
+                type: DirectoryOrCreate

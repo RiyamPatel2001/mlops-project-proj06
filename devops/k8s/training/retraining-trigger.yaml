@@ -36,10 +36,7 @@ spec:
                     name: proj06-env
               env:
                 - name: MLFLOW_TRACKING_URI
-                  valueFrom:
-                    secretKeyRef:
-                      name: mlflow-uri
-                      key: uri
+                  value: "http://mlflow-proj06.mlops.svc.cluster.local:5000"
                 - name: MINIO_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:

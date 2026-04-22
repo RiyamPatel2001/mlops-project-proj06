@@ -1,0 +1,7 @@
+{
+  "tiers": {
+    "good":  {"run_id": "b8f1ad8433b7492e82726429df5b66a0", "artifact_path": "minilm",              "model_name": "minilm",       "model_kind": "hf"},
+    "fast":  {"run_id": "5af29fbaa4b04abc9d21b18a19ccc736", "artifact_path": "fasttext.bin",        "model_name": "fasttext",     "model_kind": "fasttext"},
+    "cheap": {"run_id": "bd19d31c1aa94500a0fa3a4f2cee4c94", "artifact_path": "tfidf_logreg.joblib", "model_name": "tf_idf_logreg","model_kind": "sklearn"}
+  }
+}

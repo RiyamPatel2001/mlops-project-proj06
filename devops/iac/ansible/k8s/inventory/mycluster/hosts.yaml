@@ -1,7 +1,7 @@
 all:
   hosts:
     node1:
-      ansible_host: 129.114.27.175
+      ansible_host: FLOATING_IP_HERE
       ansible_user: cc
       ip: 192.168.1.11
       access_ip: 192.168.1.11
@@ -10,28 +10,39 @@ all:
       ansible_user: cc
       ip: 192.168.1.12
       access_ip: 192.168.1.12
-      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o ProxyCommand="ssh -A -W %h:%p -i /Users/puneeth/.ssh/id_rsa_chameleon -o StrictHostKeyChecking=no cc@129.114.27.175"'
+      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o ProxyCommand="ssh -A -W %h:%p -i ~/.ssh/id_rsa_chameleon -o StrictHostKeyChecking=no cc@FLOATING_IP_HERE"'
     node3:
       ansible_host: 192.168.1.13
       ansible_user: cc
       ip: 192.168.1.13
       access_ip: 192.168.1.13
-      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o ProxyCommand="ssh -A -W %h:%p -i /Users/puneeth/.ssh/id_rsa_chameleon -o StrictHostKeyChecking=no cc@129.114.27.175"'
+      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o ProxyCommand="ssh -A -W %h:%p -i ~/.ssh/id_rsa_chameleon -o StrictHostKeyChecking=no cc@FLOATING_IP_HERE"'
+    node4:
+      ansible_host: 192.168.1.14
+      ansible_user: cc
+      ip: 192.168.1.14
+      access_ip: 192.168.1.14
+      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o ProxyCommand="ssh -A -W %h:%p -i ~/.ssh/id_rsa_chameleon -o StrictHostKeyChecking=no cc@FLOATING_IP_HERE"'
+    node5:
+      ansible_host: 192.168.1.15
+      ansible_user: cc
+      ip: 192.168.1.15
+      access_ip: 192.168.1.15
+      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o ProxyCommand="ssh -A -W %h:%p -i ~/.ssh/id_rsa_chameleon -o StrictHostKeyChecking=no cc@FLOATING_IP_HERE"'
   children:
     kube_control_plane:
       hosts:
         node1:
-        node2:
     kube_node:
       hosts:
         node1:
         node2:
         node3:
+        node4:
+        node5:
     etcd:
       hosts:
         node1:
-        node2:
-        node3:
     k8s_cluster:
       children:
         kube_control_plane:
