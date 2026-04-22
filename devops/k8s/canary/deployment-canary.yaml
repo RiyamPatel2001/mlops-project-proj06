@@ -1,0 +1,123 @@
+# =============================================================================
+# Transaction Classifier — Canary Deployment (10% traffic)
+# =============================================================================
+# Traffic split: stable (9 replicas) + canary (1 replica) = 10% canary
+#
+# To activate canary with a new model image:
+#   kubectl set image deployment/transaction-classifier-canary \
+#     fastapi=ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:<NEW_SHA> \
+#     -n mlops
+#   kubectl scale deployment/transaction-classifier --replicas=9 -n mlops
+#   kubectl scale deployment/transaction-classifier-canary --replicas=1 -n mlops
+#
+# To promote canary (if metrics pass):
+#   kubectl set image deployment/transaction-classifier \
+#     fastapi=ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:<NEW_SHA> \
+#     -n mlops
+#   kubectl scale deployment/transaction-classifier --replicas=1 -n mlops
+#   kubectl scale deployment/transaction-classifier-canary --replicas=0 -n mlops
+#
+# To rollback canary (if alerts fire):
+#   kubectl scale deployment/transaction-classifier-canary --replicas=0 -n mlops
+#   kubectl scale deployment/transaction-classifier --replicas=1 -n mlops
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-classifier-canary
+  namespace: mlops
+  labels:
+    app: transaction-classifier
+    track: canary
+    project: proj06
+  annotations:
+    kubernetes.io/change-cause: "canary: inactive by default — scale to 1 to activate"
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: transaction-classifier
+      track: canary
+  template:
+    metadata:
+      labels:
+        app: transaction-classifier
+        track: canary
+        project: proj06
+    spec:
+      containers:
+        - name: fastapi
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: proj06-env
+          env:
+            - name: MODEL_TYPE
+              value: "fasttext"
+            - name: MODEL_BACKEND
+              value: "native"
+            - name: MODEL_PATH
+              value: "/app/models/fasttext"
+            - name: LABEL_MAP_PATH
+              value: "/app/models/fasttext/label_map.json"
+            - name: MODEL_VERSION
+              value: "canary"
+            - name: MODEL_REGISTRY_PATH
+              value: "/app/models/layer1_registry.json"
+            - name: MODEL_REGISTRY_REFRESH_SECONDS
+              value: "30"
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: "http://minio:9000"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: accesskey
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: secretkey
+            - name: MLFLOW_ARTIFACT_CACHE_DIR
+              value: "/app/models/artifact_cache"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+              ephemeral-storage: "4Gi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+              ephemeral-storage: "8Gi"
+          volumeMounts:
+            - name: serving-models
+              mountPath: /app/models
+            - name: artifacts
+              mountPath: /app/artifacts
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 240
+            periodSeconds: 15
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 180
+            periodSeconds: 20
+            failureThreshold: 3
+      volumes:
+        - name: serving-models
+          persistentVolumeClaim:
+            claimName: serving-models-pvc
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: artifacts-pvc
+      restartPolicy: Always

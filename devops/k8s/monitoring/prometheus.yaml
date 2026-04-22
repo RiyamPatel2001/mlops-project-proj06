@@ -13,7 +13,9 @@ data:
       - /etc/prometheus/alerts.yml
 
     alerting:
-      alertmanagers: []
+      alertmanagers:
+        - static_configs:
+            - targets: ['alertmanager.mlops.svc.cluster.local:9093']
 
     scrape_configs:
       - job_name: 'kubernetes-pods'
