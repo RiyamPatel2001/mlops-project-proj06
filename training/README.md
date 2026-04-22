@@ -56,18 +56,14 @@ All Docker commands below assume you are in the `training/` directory.
 # Build
 docker build -t categorizer-training .
 
-# Run — mount config.yaml to set the model and all hyperparameters
-# --network host lets the container reach K8s NodePort services (MLflow :30500)
-# DATA_RAW_PATH points to the locally mounted CSV when MinIO NodePort (:30900) is unreachable
+# Run — --network host lets the container reach K8s NodePort services (MinIO :30900, MLflow :30500)
 docker run --rm \
   --network host \
   -e MLFLOW_TRACKING_URI=http://<chameleon-ip>:30500 \
-  -e DATA_RAW_PATH=/app/data/raw/train.csv \
   -e MINIO_ACCESS_KEY=minioadmin \
   -e MINIO_SECRET_KEY=minioadmin123 \
   -e GIT_SHA="$(git rev-parse HEAD)" \
   -v "$(pwd)/config.yaml:/app/training/config.yaml" \
-  -v "$(pwd)/../data:/app/data" \
   -v "$(pwd)/models/layer1/artifacts:/app/training/models/layer1/artifacts" \
   categorizer-training
 ```
@@ -84,25 +80,27 @@ docker build -t categorizer-training .
 
 # Sweep all CPU models
 docker run --rm \
+  --network host \
   --entrypoint python \
-  -v "$(pwd)/config.yaml:/app/training/config.yaml" \
-  -v "$(pwd)/sweep-cpu.py:/app/training/sweep-cpu.py" \
-  -e GIT_SHA="$(git rev-parse HEAD)" \
-  -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500  \
+  -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500 \
   -e MINIO_ACCESS_KEY=minioadmin \
   -e MINIO_SECRET_KEY=minioadmin123 \
+  -e GIT_SHA="$(git rev-parse HEAD)" \
+  -v "$(pwd)/config.yaml:/app/training/config.yaml" \
+  -v "$(pwd)/sweep-cpu.py:/app/training/sweep-cpu.py" \
   ghcr.io/riyampatel2001/mlops-project-proj06/training-cpu:latest \
   /app/training/sweep-cpu.py --config /app/training/config.yaml
 
 # Sweep a single model (e.g. fasttext)
 docker run --rm \
+  --network host \
   --entrypoint python \
-  -v "$(pwd)/config.yaml:/app/training/config.yaml" \
-  -v "$(pwd)/sweep-cpu.py:/app/training/sweep-cpu.py" \
-  -e GIT_SHA="$(git rev-parse HEAD)" \
-  -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500  \
+  -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500 \
   -e MINIO_ACCESS_KEY=minioadmin \
   -e MINIO_SECRET_KEY=minioadmin123 \
+  -e GIT_SHA="$(git rev-parse HEAD)" \
+  -v "$(pwd)/config.yaml:/app/training/config.yaml" \
+  -v "$(pwd)/sweep-cpu.py:/app/training/sweep-cpu.py" \
   ghcr.io/riyampatel2001/mlops-project-proj06/training-cpu:latest \
   /app/training/sweep-cpu.py --config /app/training/config.yaml --model fasttext
 ```
@@ -116,17 +114,13 @@ docker run --rm \
 docker build -f Dockerfile.gpu -t categorizer-training-gpu .
 
 # Run — trains whichever model is set in config.yaml
-# --network host lets the container reach K8s NodePort services (MLflow :30500)
-# DATA_RAW_PATH points to the locally mounted CSV when MinIO NodePort (:30900) is unreachable
 docker run --rm --gpus all \
   --network host \
   -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500 \
-  -e DATA_RAW_PATH=/app/data/raw/train.csv \
   -e MINIO_ACCESS_KEY=minioadmin \
   -e MINIO_SECRET_KEY=minioadmin123 \
   -e GIT_SHA="$(git rev-parse HEAD)" \
   -v "$(pwd)/config.yaml:/app/training/config.yaml" \
-  -v "$(pwd)/../data:/app/data" \
   -v "$(pwd)/models/layer1/artifacts:/app/training/models/layer1/artifacts" \
   categorizer-training-gpu
 ```
@@ -142,18 +136,14 @@ docker run --rm --gpus all \
 docker build -f Dockerfile.gpu -t categorizer-training-gpu .
 
 # Sweep a single transformer model (e.g. minilm)
-# --network host lets the container reach K8s NodePort services (MLflow :30500)
-# DATA_RAW_PATH points to the locally mounted CSV when MinIO NodePort (:30900) is unreachable
 docker run --rm --gpus all \
   --network host \
   -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500 \
-  -e DATA_RAW_PATH=/app/data/raw/train.csv \
   -e MINIO_ACCESS_KEY=minioadmin \
   -e MINIO_SECRET_KEY=minioadmin123 \
   -e GIT_SHA="$(git rev-parse HEAD)" \
   -v "$(pwd)/config.yaml:/app/training/config.yaml" \
   -v "$(pwd)/sweep-gpu.py:/app/training/sweep-gpu.py" \
-  -v "$(pwd)/../data:/app/data" \
   -v "$(pwd)/models/layer1/artifacts:/app/training/models/layer1/artifacts" \
   --entrypoint python \
   categorizer-training-gpu \
@@ -163,13 +153,11 @@ docker run --rm --gpus all \
 docker run --rm --gpus all \
   --network host \
   -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500 \
-  -e DATA_RAW_PATH=/app/data/raw/train.csv \
   -e MINIO_ACCESS_KEY=minioadmin \
   -e MINIO_SECRET_KEY=minioadmin123 \
   -e GIT_SHA="$(git rev-parse HEAD)" \
   -v "$(pwd)/config.yaml:/app/training/config.yaml" \
   -v "$(pwd)/sweep-gpu.py:/app/training/sweep-gpu.py" \
-  -v "$(pwd)/../data:/app/data" \
   -v "$(pwd)/models/layer1/artifacts:/app/training/models/layer1/artifacts" \
   --entrypoint python \
   categorizer-training-gpu \

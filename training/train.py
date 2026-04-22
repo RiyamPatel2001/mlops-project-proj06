@@ -292,6 +292,46 @@ def run_training(X_train, y_train, cfg: dict):
 
 # ── 9–10. Artifact saving + logging ──────────────────────────────────────────
 
+def _direct_minio_upload(local_path: str, cfg: dict) -> None:
+    """
+    Upload a file directly to MinIO at the path MLflow expects for the active run,
+    bypassing the MLflow artifact proxy.
+
+    With --serve-artifacts, Gunicorn buffers the entire POST body before forwarding
+    to MinIO. For fasttext.bin (~764 MB) this exceeds the pod's available memory
+    and causes repeated 500s. Writing directly via the minio SDK sidesteps the
+    proxy while keeping the file at the path mlflow.artifacts.download_artifacts()
+    resolves to on download.
+
+    S3 key: <experiment_id>/<run_id>/artifacts/<basename>
+    Bucket: mlflow-artifacts  (matches --artifacts-destination in deployment.yaml)
+    """
+    from minio import Minio
+
+    run           = mlflow.active_run()
+    experiment_id = run.info.experiment_id
+    run_id        = run.info.run_id
+    filename      = os.path.basename(local_path)
+    object_name   = f"{experiment_id}/{run_id}/artifacts/{filename}"
+    bucket        = "mlflow-artifacts"
+
+    raw_endpoint = cfg["minio"]["endpoint"]
+    endpoint     = raw_endpoint.replace("http://", "").replace("https://", "")
+    secure       = raw_endpoint.startswith("https://")
+
+    client = Minio(
+        endpoint,
+        access_key=os.environ.get("MINIO_ACCESS_KEY", cfg["minio"].get("access_key", "minioadmin")),
+        secret_key=os.environ.get("MINIO_SECRET_KEY", cfg["minio"].get("secret_key", "minioadmin")),
+        secure=secure,
+    )
+
+    file_mb = os.path.getsize(local_path) / 1_048_576
+    print(f"[artifact] Direct-uploading {filename} ({file_mb:.0f} MB) → {bucket}/{object_name}")
+    client.fput_object(bucket, object_name, local_path)
+    print(f"[artifact] Upload complete.")
+
+
 def save_and_log_model(vec, clf, cfg: dict) -> None:
     """
     Persist the fitted (vectorizer, classifier) pair with joblib,
@@ -308,18 +348,23 @@ def save_and_log_model(vec, clf, cfg: dict) -> None:
         # fasttext has its own binary format — save the underlying C++ model
         artifact_path = os.path.join(output_dir, f"{model_name}.bin")
         clf._model.save_model(artifact_path)
+        print(f"[artifact] Saved model to {artifact_path}")
+        # ~764 MB binary — upload directly to MinIO to bypass the MLflow proxy
+        _direct_minio_upload(artifact_path, cfg)
     elif model_name in ["minilm", "distilbert", "mpnet"]:
         # HuggingFace transformers — save in their native format
         artifact_path = os.path.join(output_dir, model_name)
         clf.save(artifact_path)
+        print(f"[artifact] Saved model to {artifact_path}")
+        mlflow.log_artifact(artifact_path)
+        print(f"[artifact] Logged to MLflow.")
     else:
         # sklearn-compatible models — joblib pickle of {vectorizer, classifier}
         artifact_path = os.path.join(output_dir, f"{model_name}.joblib")
         joblib.dump({"vectorizer": vec, "classifier": clf}, artifact_path)
- 
-    print(f"[artifact] Saved model to {artifact_path}")
-    mlflow.log_artifact(artifact_path)
-    print(f"[artifact] Logged to MLflow.")
+        print(f"[artifact] Saved model to {artifact_path}")
+        mlflow.log_artifact(artifact_path)
+        print(f"[artifact] Logged to MLflow.")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
