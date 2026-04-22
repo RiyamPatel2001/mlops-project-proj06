@@ -44,6 +44,11 @@ spec:
                     secretKeyRef:
                       name: minio-credentials
                       key: secretkey
+                - name: ANTHROPIC_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: anthropic-credentials
+                      key: api-key
                 - name: MINIO_BUCKET
                   value: "data"
                 - name: MINIO_PREFIX
