@@ -3,7 +3,7 @@ mlflow:
   experiment_name: "layer2-evaluation"
 
 minio:
-  endpoint: "http://129.114.25.143.30900"
+  endpoint: "http://minio.mlops.svc.cluster.local:9000"
   bucket: "data"
   object: "processed/train.csv"
 
