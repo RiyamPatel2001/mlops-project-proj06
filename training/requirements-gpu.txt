@@ -10,6 +10,7 @@ accelerate==0.29.*
 sentence-transformers>=2.2.0  # required for all-mpnet-base-v2 model weights
 joblib==1.4.*
 mlflow==2.14.*
+minio==7.2.*
 numpy==1.26.*
 pandas==2.2.*
 PyYAML==6.0.*

@@ -64,6 +64,9 @@ def parse_args() -> argparse.Namespace:
 def load_config(path: str) -> dict:
     with open(path) as f:
         cfg = yaml.safe_load(f)
+    # Priority: DATA_RAW_PATH env var > config.yaml (mirrors MLFLOW_TRACKING_URI pattern)
+    if raw_path := os.environ.get("DATA_RAW_PATH"):
+        cfg["data"]["raw_path"] = raw_path
     return cfg
 
 
@@ -138,6 +141,38 @@ def log_config_params(cfg: dict) -> None:
 
 # ── 6. Preprocessing ──────────────────────────────────────────────────────────
 
+def _load_raw_csv(cfg: dict) -> pd.DataFrame:
+    """Load raw CSV from a local path or an authenticated MinIO HTTP URL."""
+    raw_path = cfg["data"]["raw_path"]
+    if not raw_path.startswith(("http://", "https://")):
+        return pd.read_csv(raw_path)
+
+    from urllib.parse import urlparse
+    from minio import Minio
+
+    parsed = urlparse(raw_path)
+    endpoint_clean = parsed.netloc
+    secure = parsed.scheme == "https"
+    bucket, object_key = parsed.path.lstrip("/").split("/", 1)
+
+    minio_cfg = cfg.get("minio", {})
+    client = Minio(
+        endpoint_clean,
+        access_key=os.environ.get("MINIO_ACCESS_KEY", minio_cfg.get("access_key", "minioadmin")),
+        secret_key=os.environ.get("MINIO_SECRET_KEY", minio_cfg.get("secret_key", "minioadmin123")),
+        secure=secure,
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        client.fget_object(bucket, object_key, tmp_path)
+        return pd.read_csv(tmp_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
 def run_preprocessing(cfg: dict) -> tuple[pd.Series, pd.Series, np.ndarray, np.ndarray, list[str]]:
     """
     Load raw data, normalize payees, split by user, encode labels.
@@ -149,7 +184,7 @@ def run_preprocessing(cfg: dict) -> tuple[pd.Series, pd.Series, np.ndarray, np.n
     """
     data_cfg = cfg["data"]
 
-    df = pd.read_csv(data_cfg["raw_path"])
+    df = _load_raw_csv(cfg)
     print(f"[preprocess] Loaded {len(df):,} rows")
 
     # Normalize payees
