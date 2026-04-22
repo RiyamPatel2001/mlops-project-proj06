@@ -139,13 +139,25 @@ spec:
         project: proj06
     spec:
       serviceAccountName: rollback-receiver
-      containers:
-        - name: receiver
-          image: bitnami/kubectl:1.30
+      initContainers:
+        - name: install-kubectl
+          image: python:3.11-slim
           command: ["/bin/sh", "-c"]
           args:
             - |
-              apt-get update -qq && apt-get install -y -qq python3 2>/dev/null || true
+              apt-get update -qq && apt-get install -y -qq curl &&
+              curl -sSL https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl -o /tools/kubectl &&
+              chmod +x /tools/kubectl
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+      containers:
+        - name: receiver
+          image: python:3.11-slim
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              export PATH="/tools:$PATH"
               python3 /app/server.py
           ports:
             - containerPort: 9094
@@ -153,6 +165,8 @@ spec:
           volumeMounts:
             - name: script
               mountPath: /app
+            - name: tools
+              mountPath: /tools
           readinessProbe:
             httpGet:
               path: /health
@@ -170,6 +184,8 @@ spec:
         - name: script
           configMap:
             name: rollback-receiver-script
+        - name: tools
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
