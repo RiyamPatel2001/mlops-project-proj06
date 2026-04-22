@@ -21,3 +21,8 @@ layer2:
   similarity_threshold: 0.85
   min_history: 10
   store_path: "artifacts/user_store.pkl"        # relative to model_pipeline/layer2/
+
+layer3:
+  eps: 0.15              # DBSCAN epsilon (cosine distance, not similarity)
+  min_samples: 3         # minimum cluster size
+  store_path: "artifacts/user_store.pkl"   # same as layer2
