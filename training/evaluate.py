@@ -118,8 +118,8 @@ def evaluate_and_log(
 
     # ── 9. Quality gate ───────────────────────────────────────────────────────
     gate_cfg = config.get("quality_gate", {})
-    min_weighted = gate_cfg.get("weighted_f1", 0.75)
-    min_macro    = gate_cfg.get("macro_f1",    0.55)
+    min_weighted = gate_cfg.get("weighted_f1", 0.90)
+    min_macro    = gate_cfg.get("macro_f1",    0.90)
 
     passed = weighted_f1 >= min_weighted and macro_f1 >= min_macro
     status = "passed" if passed else "failed"
