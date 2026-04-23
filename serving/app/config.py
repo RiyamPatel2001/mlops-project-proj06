@@ -15,6 +15,10 @@ MLFLOW_TRACKING_URI = os.getenv(
     "MLFLOW_TRACKING_URI",
     "http://mlflow-proj06.mlops.svc.cluster.local:5000",
 )
+MLFLOW_EXPERIMENT_NAME = os.getenv(
+    "MLFLOW_EXPERIMENT_NAME",
+    "layer1-categorizer",
+)
 
 MODEL_REGISTRY_PATH = os.getenv(
     "MODEL_REGISTRY_PATH",
@@ -30,7 +34,7 @@ TIER_GOOD_MODEL_NAME = os.getenv("TIER_GOOD_MODEL_NAME", "minilm")
 TIER_GOOD_MODEL_KIND = os.getenv("TIER_GOOD_MODEL_KIND", "hf").lower()
 TIER_GOOD_RUN_ID = os.getenv(
     "TIER_GOOD_RUN_ID",
-    "464cacf29c054edca5aa6ddc62f8816a",
+    "",
 )
 TIER_GOOD_ARTIFACT_PATH = os.getenv("TIER_GOOD_ARTIFACT_PATH", "minilm")
 
@@ -38,15 +42,15 @@ TIER_FAST_MODEL_NAME = os.getenv("TIER_FAST_MODEL_NAME", "fasttext")
 TIER_FAST_MODEL_KIND = os.getenv("TIER_FAST_MODEL_KIND", "fasttext").lower()
 TIER_FAST_RUN_ID = os.getenv(
     "TIER_FAST_RUN_ID",
-    "e99c0f7fe5554fd584c9efd2162f5572",
+    "",
 )
 TIER_FAST_ARTIFACT_PATH = os.getenv("TIER_FAST_ARTIFACT_PATH", "fasttext.bin")
 
-TIER_CHEAP_MODEL_NAME = os.getenv("TIER_CHEAP_MODEL_NAME", "tf_idf_logreg")
+TIER_CHEAP_MODEL_NAME = os.getenv("TIER_CHEAP_MODEL_NAME", "tfidf_logreg")
 TIER_CHEAP_MODEL_KIND = os.getenv("TIER_CHEAP_MODEL_KIND", "sklearn").lower()
 TIER_CHEAP_RUN_ID = os.getenv(
     "TIER_CHEAP_RUN_ID",
-    "b69934eb9ef14e0a960a5b6345b0d8a4",
+    "",
 )
 TIER_CHEAP_ARTIFACT_PATH = os.getenv(
     "TIER_CHEAP_ARTIFACT_PATH",
