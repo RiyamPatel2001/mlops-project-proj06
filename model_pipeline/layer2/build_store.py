@@ -38,8 +38,9 @@ def load_config(path: str = _DEFAULT_CONFIG) -> dict:
 
 
 def make_minio_client(cfg: dict) -> Minio:
-    endpoint = cfg["minio"]["endpoint"].replace("http://", "").replace("https://", "")
-    secure = cfg["minio"]["endpoint"].startswith("https://")
+    raw_endpoint = os.environ.get("MINIO_ENDPOINT_URL", cfg["minio"]["endpoint"])
+    endpoint = raw_endpoint.replace("http://", "").replace("https://", "")
+    secure = raw_endpoint.startswith("https://")
     return Minio(
         endpoint,
         access_key=os.environ.get("MINIO_ACCESS_KEY", "minioadmin"),
