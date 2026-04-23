@@ -357,6 +357,14 @@ def save_and_log_model(vec, clf, cfg: dict) -> None:
         clf.save(artifact_path)
         print(f"[artifact] Saved model to {artifact_path}")
         mlflow.log_artifact(artifact_path)
+        # Transformers carry no label names — log label_classes.json alongside
+        # the model so eval_layer1.py can resolve the integer→category mapping.
+        lc_path = os.path.join(cfg["data"]["processed_dir"], "label_classes.json")
+        if os.path.exists(lc_path):
+            mlflow.log_artifact(lc_path)
+            print(f"[artifact] Logged label_classes.json to MLflow.")
+        else:
+            print(f"[artifact] WARNING: {lc_path} not found — eval_layer1.py will need a volume mount.")
         print(f"[artifact] Logged to MLflow.")
     else:
         # sklearn-compatible models — joblib pickle of {vectorizer, classifier}
