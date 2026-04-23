@@ -147,6 +147,7 @@ docker run --rm --gpus all \
   -e GIT_SHA="$(git rev-parse HEAD)" \
   -v "$(pwd)/config.yaml:/app/training/config.yaml" \
   -v "$(pwd)/eval_layer1.py:/app/training/eval_layer1.py" \
+  -v "$(pwd)/evaluate.py:/app/training/evaluate.py" \
   -v "$(pwd)/../data:/app/data" \
   --entrypoint python \
   categorizer-training-gpu \
@@ -166,6 +167,7 @@ docker run --rm --gpus all \
   -e GIT_SHA="$(git rev-parse HEAD)" \
   -v "$(pwd)/config.yaml:/app/training/config.yaml" \
   -v "$(pwd)/eval_layer1.py:/app/training/eval_layer1.py" \
+  -v "$(pwd)/evaluate.py:/app/training/evaluate.py" \
   -v "$(pwd)/../data:/app/data" \
   --entrypoint python \
   categorizer-training-gpu \
@@ -178,6 +180,54 @@ docker run --rm --gpus all \
 ```
 
 `--model-type` accepts `fasttext`, `minilm`, `distilbert`, or `mpnet`. `--run-id` is the MLflow run ID from a previous training run.
+
+### CPU evaluation (fasttext)
+
+```bash
+# Build (same image as CPU training)
+docker build -t categorizer-training .
+
+# Evaluate fasttext on eval_cex.csv
+docker run --rm \
+  --network host \
+  -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500 \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
+  -e GIT_SHA="$(git rev-parse HEAD)" \
+  -v "$(pwd)/config.yaml:/app/training/config.yaml" \
+  -v "$(pwd)/eval_layer1.py:/app/training/eval_layer1.py" \
+  -v "$(pwd)/evaluate.py:/app/training/evaluate.py" \
+  -v "$(pwd)/../data:/app/data" \
+  --entrypoint python \
+  categorizer-training \
+  /app/training/eval_layer1.py \
+    --run-id    <mlflow-run-id> \
+    --model-type fasttext \
+    --eval-csv  processed/eval_cex.csv \
+    --run-name  eval-fasttext-cex
+
+# Evaluate fasttext on eval_moneydata.csv (OOD — disable quality gate)
+docker run --rm \
+  --network host \
+  -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500 \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
+  -e GIT_SHA="$(git rev-parse HEAD)" \
+  -v "$(pwd)/config.yaml:/app/training/config.yaml" \
+  -v "$(pwd)/eval_layer1.py:/app/training/eval_layer1.py" \
+  -v "$(pwd)/evaluate.py:/app/training/evaluate.py" \
+  -v "$(pwd)/../data:/app/data" \
+  --entrypoint python \
+  categorizer-training \
+  /app/training/eval_layer1.py \
+    --run-id    <mlflow-run-id> \
+    --model-type fasttext \
+    --eval-csv  processed/eval_moneydata.csv \
+    --run-name  eval-fasttext-moneydata \
+    --no-quality-gate
+```
 
 ---
 
