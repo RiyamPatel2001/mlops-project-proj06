@@ -30,8 +30,12 @@ def run_pipeline(config: dict) -> None:
     with open(store_path, "rb") as f:
         store: dict = pickle.load(f)
 
-    postgres_dsn = os.environ["POSTGRES_DSN"]
-    conn = psycopg2.connect(postgres_dsn)
+    dsn = os.environ.get("POSTGRES_DSN", config.get("postgres", {}).get("dsn", ""))
+    if not dsn:
+        raise RuntimeError(
+            "Postgres DSN not set. Provide POSTGRES_DSN env var or set postgres.dsn in config.yaml."
+        )
+    conn = psycopg2.connect(dsn)
     cur = conn.cursor()
 
     mlflow.set_tracking_uri(tracking_uri)
@@ -62,7 +66,7 @@ def run_pipeline(config: dict) -> None:
                     INSERT INTO layer3_suggestions
                         (user_id, cluster_id, suggested_category_name, payee_list, status, created_at)
                     VALUES (%s, %s, %s, %s, 'pending', NOW())
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT (cluster_id) DO NOTHING
                     """,
                     (user_id, cluster_id, suggested_name, cluster["payees"]),
                 )

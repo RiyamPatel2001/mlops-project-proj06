@@ -36,6 +36,7 @@ from sklearn.metrics import accuracy_score
 sys.path.insert(0, os.path.dirname(__file__))
 import evaluate as eval_module
 import train as train_module
+from train import register_model_if_passed
 from minio import Minio
 
 _MODEL_ARTIFACT_PATHS = {
@@ -494,6 +495,9 @@ def main() -> None:
             )
 
             train_module.save_and_log_model(vec, clf, cfg)
+
+            run_id = mlflow.active_run().info.run_id
+            register_model_if_passed(cfg, run_id)
 
             quality_gate = mlflow.active_run().data.tags.get("quality_gate", "unknown")
 

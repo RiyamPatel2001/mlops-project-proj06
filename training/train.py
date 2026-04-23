@@ -375,6 +375,76 @@ def save_and_log_model(vec, clf, cfg: dict) -> None:
         print(f"[artifact] Logged to MLflow.")
 
 
+# ── 11. MLflow Model Registry ────────────────────────────────────────────────
+
+# Mirrors retrain.py's _MODEL_ARTIFACT_PATHS — artifact path relative to run root
+_MODEL_ARTIFACT_PATHS = {
+    "tfidf_logreg": "tfidf_logreg.joblib",
+    "fasttext":     "fasttext.bin",
+    "minilm":       "minilm",
+    "distilbert":   "distilbert",
+    "mpnet":        "mpnet",
+}
+
+
+def register_model_if_passed(cfg: dict, run_id: str) -> None:
+    """
+    Register the logged model artifact to the MLflow Model Registry
+    if the quality gate passed for this run.
+    Only registers if quality_gate tag == "passed" on the active run.
+    Skips silently if the MLflow server does not support the registry
+    (e.g. file-based tracking URI).
+    """
+    active_run = mlflow.active_run()
+    gate_status = active_run.data.tags.get("quality_gate", "")
+    if gate_status != "passed":
+        print(f"[registry] Skipping registration — quality_gate={gate_status!r}")
+        return
+
+    model_name = cfg["model"]
+    registered_model_name = cfg.get("mlflow", {}).get(
+        "model_name", "transaction-categorizer"
+    )
+    artifact_path = _MODEL_ARTIFACT_PATHS.get(model_name)
+    if artifact_path is None:
+        print(
+            f"[registry] WARNING: No artifact path mapping for model '{model_name}'"
+            " — skipping registration."
+        )
+        return
+
+    try:
+        model_uri = f"runs:/{run_id}/{artifact_path}"
+        mv = mlflow.register_model(model_uri=model_uri, name=registered_model_name)
+
+        # Annotate the registered version with key metadata for traceability
+        metrics = active_run.data.metrics
+        tags = active_run.data.tags
+        wf1 = metrics.get("weighted_f1")
+        mf1 = metrics.get("macro_f1")
+        dataset_version = tags.get("dataset_version", "")
+
+        desc_parts = []
+        if dataset_version:
+            desc_parts.append(f"dataset_version={dataset_version}")
+        if wf1 is not None:
+            desc_parts.append(f"weighted_f1={wf1:.4f}")
+        if mf1 is not None:
+            desc_parts.append(f"macro_f1={mf1:.4f}")
+
+        mlflow.tracking.MlflowClient().update_model_version(
+            name=registered_model_name,
+            version=mv.version,
+            description=", ".join(desc_parts) if desc_parts else "no metadata available",
+        )
+        print(
+            f"[registry] Registered {registered_model_name} version {mv.version}"
+            f" (run_id={run_id})"
+        )
+    except Exception as exc:
+        print(f"[registry] WARNING: Model registration failed — {exc}. Continuing.")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -426,6 +496,10 @@ def main() -> None:
 
         # 9–10. Save model + log artifact
         save_and_log_model(vec, clf, cfg)
+
+        # 11. Register to MLflow Model Registry if quality gate passed
+        run_id = mlflow.active_run().info.run_id
+        register_model_if_passed(cfg, run_id)
 
         print(
             f"\n[done] Run complete — "

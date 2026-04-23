@@ -20,9 +20,12 @@ layer2:
   k: 5
   similarity_threshold: 0.85
   min_history: 10
-  store_path: "artifacts/user_store.pkl"        # relative to model_pipeline/layer2/
+  store_path: "/app/artifacts/user_store.pkl"    # PVC mounted at /app/artifacts
 
 layer3:
   eps: 0.15              # DBSCAN epsilon (cosine distance, not similarity)
   min_samples: 3         # minimum cluster size
-  store_path: "artifacts/user_store.pkl"   # same as layer2
+  store_path: "/app/artifacts/user_store.pkl"   # PVC mounted at /app/artifacts
+
+postgres:
+  dsn: "postgresql://mlops_user:mlops_pass@postgres.mlops.svc.cluster.local:5432/mlops"
