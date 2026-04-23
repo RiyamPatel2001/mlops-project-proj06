@@ -47,7 +47,7 @@ MINIO_ENDPOINT   = os.environ.get("MINIO_ENDPOINT",   "http://10.43.4.193:9000")
 MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "minioadmin123")
 MINIO_BUCKET     = os.environ.get("MINIO_BUCKET",     "data")
-MINIO_PREFIX     = os.environ.get("MINIO_PREFIX", "data/retraining")
+MINIO_PREFIX     = os.environ.get("MINIO_PREFIX", "retraining")
 
 
 def get_minio_client():
