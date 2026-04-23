@@ -3,14 +3,36 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   classifyTransaction,
   classifyTransactions,
+  tagExample,
 } from './mlService';
 
 describe('mlService', () => {
   beforeEach(() => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: vi.fn((key: string) => store.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => {
+        store.set(key, value);
+      }),
+      removeItem: vi.fn((key: string) => {
+        store.delete(key);
+      }),
+      clear: vi.fn(() => {
+        store.clear();
+      }),
+    };
+
+    Object.defineProperty(window, 'localStorage', {
+      value: storage,
+      configurable: true,
+    });
     vi.stubGlobal('fetch', vi.fn());
+    window.localStorage.setItem('ml-serving-auth-token', 'test-token');
+    window.localStorage.setItem('ml-serving-username', 'test-user');
   });
 
   afterEach(() => {
+    window.localStorage.clear();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -20,7 +42,7 @@ describe('mlService', () => {
       ok: true,
       json: async () => ({
         transaction_id: 'txn-1',
-        user_id: 'acct-1',
+        user_id: 'service-user-1',
         prediction_category: 'Groceries',
         confidence: 0.92,
         source: 'layer1',
@@ -45,6 +67,10 @@ describe('mlService', () => {
       request_mode: 'bulk',
       batch_id: 'import-123',
     });
+    expect(JSON.parse(String(options?.body))).not.toHaveProperty('user_id');
+    expect(options?.headers).toMatchObject({
+      Authorization: 'Bearer test-token',
+    });
   });
 
   it('caps in-flight classify requests for bulk imports', async () => {
@@ -63,7 +89,7 @@ describe('mlService', () => {
         ok: true,
         json: async () => ({
           transaction_id: body.transaction_id,
-          user_id: body.user_id,
+          user_id: 'service-user-1',
           prediction_category: 'Groceries',
           confidence: 0.88,
           source: 'layer1',
@@ -95,6 +121,57 @@ describe('mlService', () => {
         request_mode: 'bulk',
         batch_id: 'import-456',
       });
+      expect(JSON.parse(String(options?.body))).not.toHaveProperty('user_id');
+      expect(options?.headers).toMatchObject({
+        Authorization: 'Bearer test-token',
+      });
     }
+  });
+
+  it('returns a structured success result for tagged examples', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: 'ok',
+        id: 7,
+      }),
+    } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      tagExample({
+        payee: 'WHOLE FOODS',
+        custom_category: 'Personal Groceries',
+      }),
+    ).resolves.toEqual({ ok: true });
+  });
+
+  it('reports network failures when tagged examples cannot reach the service', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      tagExample({
+        payee: 'WHOLE FOODS',
+        custom_category: 'Personal Groceries',
+      }),
+    ).resolves.toEqual({ ok: false, reason: 'network' });
+  });
+
+  it('reports server failures when tagged examples are rejected', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+    } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      tagExample({
+        payee: 'WHOLE FOODS',
+        custom_category: 'Personal Groceries',
+      }),
+    ).resolves.toEqual({ ok: false, reason: 'server', status: 500 });
   });
 });

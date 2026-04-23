@@ -13,7 +13,8 @@ type Props = {
   accountId: string;
 };
 
-export function CustomCategoryTagger({ accountId }: Props) {
+export function CustomCategoryTagger({ accountId: _accountId }: Props) {
+  void _accountId;
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [payee, setPayee] = useState('');
@@ -23,9 +24,9 @@ export function CustomCategoryTagger({ accountId }: Props) {
   const [customCategories, setCustomCategories] = useState<string[]>([]);
 
   const loadCategories = useCallback(async () => {
-    const cats = await getCustomCategories(accountId);
+    const cats = await getCustomCategories();
     setCustomCategories(cats);
-  }, [accountId]);
+  }, []);
 
   useEffect(() => {
     void loadCategories();
@@ -35,19 +36,24 @@ export function CustomCategoryTagger({ accountId }: Props) {
     if (!payee.trim() || !category.trim()) return;
     setSubmitting(true);
     setMessage('');
-    const ok = await tagExample({
-      user_id: accountId,
+    const result = await tagExample({
       payee: payee.trim(),
       custom_category: category.trim(),
     });
     setSubmitting(false);
-    if (ok) {
+    if (result.ok) {
       setMessage(t('Example saved'));
       setPayee('');
       setCategory('');
       void loadCategories();
     } else {
-      setMessage(t('Failed — embedding service may be unavailable'));
+      if (result.reason === 'auth') {
+        setMessage(t('Sign in to the ML service to save examples'));
+      } else if (result.reason === 'network') {
+        setMessage(t('Failed to reach the ML service'));
+      } else {
+        setMessage(t('Failed to save example'));
+      }
     }
   }
 

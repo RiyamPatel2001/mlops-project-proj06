@@ -3,8 +3,9 @@
 import logging
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.auth import AuthenticatedUser, require_authenticated_user
 from app import layer1, layer2
 from app.feature_computation import compute_features
 from app.metrics import record_classification, record_classification_failure
@@ -15,8 +16,13 @@ router = APIRouter()
 
 
 @router.post("/classify", response_model=ClassifyResponse)
-async def classify_transaction(req: ClassifyRequest) -> ClassifyResponse:
+async def classify_transaction(
+    req: ClassifyRequest,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> ClassifyResponse:
     t0 = time.perf_counter()
+    user_id = current_user.user_id
+
     try:
         features = compute_features(req.payee, req.amount, req.date)
         model_input = features["normalized_payee"]
@@ -27,7 +33,7 @@ async def classify_transaction(req: ClassifyRequest) -> ClassifyResponse:
             batch_id=req.batch_id,
         )
 
-        l2_result = await layer2.classify(req.user_id, req.payee)
+        l2_result = await layer2.classify(user_id, req.payee)
         if l2_result is not None:
             category, similarity = l2_result
             record_classification(
@@ -41,7 +47,7 @@ async def classify_transaction(req: ClassifyRequest) -> ClassifyResponse:
             )
             return ClassifyResponse(
                 transaction_id=req.transaction_id,
-                user_id=req.user_id,
+                user_id=user_id,
                 prediction_category=category,
                 confidence=round(similarity, 4),
                 source="layer2",
@@ -59,7 +65,7 @@ async def classify_transaction(req: ClassifyRequest) -> ClassifyResponse:
         )
         return ClassifyResponse(
             transaction_id=req.transaction_id,
-            user_id=req.user_id,
+            user_id=user_id,
             prediction_category=l1_result.category,
             confidence=l1_result.confidence,
             source="layer1",
@@ -69,7 +75,7 @@ async def classify_transaction(req: ClassifyRequest) -> ClassifyResponse:
         logger.exception(
             "Classification failed for transaction_id=%s user_id=%s",
             req.transaction_id,
-            req.user_id,
+            user_id,
         )
         record_classification_failure(
             latency=time.perf_counter() - t0,
