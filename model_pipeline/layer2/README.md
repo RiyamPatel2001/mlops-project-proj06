@@ -53,9 +53,13 @@ Incoming transaction (payee, user_id)
 | `build_store.py` | Offline script — builds `user_store.pkl` from historical data |
 | `evaluate_moneydata.py` | Cold-start demo — bootstraps store from moneydata 2015–2020, evaluates on 2021–2022 holdout |
 | `../evaluate.py` | General-purpose pipeline evaluation — any eval CSV from MinIO, logs to MLflow |
-| `config.yaml` | Layer 2 configuration |
-| `Dockerfile` | Container image for build-store / evaluation jobs (build context: project root) |
-| `requirements.txt` | Python dependencies |
+| `config.yaml` | Shared configuration for Layer 2, Layer 3, MLflow, MinIO, and Postgres |
+| `Dockerfile` | Container image for all evaluation jobs (build context: project root) |
+| `requirements.txt` | Python dependencies (covers Layer 2 + Layer 3) |
+| `../layer3/cluster.py` | DBSCAN clustering on per-user embeddings |
+| `../layer3/namer.py` | LLM cluster naming via Anthropic API (falls back to majority label) |
+| `../layer3/pipeline.py` | Weekly production run — clusters users, names clusters, writes to Postgres |
+| `../layer3/evaluate.py` | Layer 3 evaluation — cluster quality metrics + LLM naming accuracy |
 
 ## Quick start
 
@@ -172,6 +176,56 @@ docker run --rm --network host \
 | `--run-name` | MLflow run name |
 | `--experiment-suffix` | Appended to `experiment_name` from config (e.g. `_cex`) |
 
+---
+
+#### 3. Layer 3 evaluation — cluster quality + LLM naming accuracy
+
+Runs DBSCAN on every user's embeddings from the store and measures three things:
+- **Cluster quality**: silhouette score, coverage (% non-noise), noise %, mean cluster size
+- **Naming accuracy**: calls `namer.py` (Anthropic API) on pure clusters and checks if the suggestion matches the majority ground-truth label
+- **Eps sensitivity**: silhouette + coverage swept at `eps × 0.5`, `eps`, and `eps × 2.0` — no LLM calls during the sweep
+
+Logs to MLflow under experiment `layer3-evaluation`. Writes a per-user results CSV as an artifact.
+
+**Prerequisite**: `user_store.pkl` must exist — built in CEX Step 1 above.
+
+```bash
+docker run --rm --network host \
+  -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
+  -v "$(pwd)/artifacts:/app/artifacts" \
+  -e ANTHROPIC_API_KEY=<your-key> \
+  actualbudget-evaluate \
+  python -m model_pipeline.layer3.evaluate
+```
+
+> `ANTHROPIC_API_KEY` is required for naming accuracy. Without it the API call returns 401, `namer.py` falls back to the majority label, and naming accuracy will show as 0.
+
+---
+
+#### 4. Layer 3 pipeline — production run (writes suggestions to Postgres)
+
+Clusters all users in the store, names each cluster via the Anthropic API, and inserts pending suggestions into the `layer3_suggestions` table. Intended to run weekly.
+
+**Prerequisite**: `user_store.pkl` must exist. Rebuild the image after `requirements.txt` was updated to add `psycopg2-binary`:
+
+```bash
+docker build -f model_pipeline/layer2/Dockerfile -t actualbudget-evaluate .
+```
+
+```bash
+docker run --rm --network host \
+  -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
+  -v "$(pwd)/artifacts:/app/artifacts" \
+  -e ANTHROPIC_API_KEY=<your-key> \
+  -e POSTGRES_DSN="postgresql://mlops_user:mlops_pass@129.114.25.143:<pg-nodeport>/mlops" \
+  actualbudget-evaluate \
+  python -m model_pipeline.layer3.pipeline
+```
+
+`POSTGRES_DSN` overrides the internal k8s DSN (`postgres.mlops.svc.cluster.local`) in `config.yaml` — use the Postgres NodePort when running outside the cluster. Logs `total_users_processed`, `total_clusters_found`, and `total_suggestions_written` to MLflow under experiment `layer3-clustering`.
+
+---
+
 ## config.yaml reference
 
 ```yaml
@@ -237,3 +291,5 @@ See `requirements.txt`. Key packages:
 | `mlflow` | Artifact download + experiment tracking |
 | `minio` | Object store access |
 | `numpy` / `pandas` | Store manipulation and data loading |
+| `psycopg2-binary` | Postgres connection for Layer 3 pipeline |
+| `requests` | Anthropic API calls in Layer 3 namer |
