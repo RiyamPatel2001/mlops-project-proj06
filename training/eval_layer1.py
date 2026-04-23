@@ -26,15 +26,22 @@ Usage (inside GPU container or locally with GPU):
     --run-name    eval-minilm-cex
 
 Docker — build (from training/):
-  docker build -t categorizer-training-gpu -f Dockerfile.gpu .
+  docker build -f Dockerfile.gpu -t categorizer-training-gpu .
 
 Docker — run eval_cex.csv (from training/):
   docker run --rm --gpus all \\
-    -v $(pwd)/../data:/app/data \\
+    --network host \\
     -e MLFLOW_TRACKING_URI=http://<FLOATING-IP>:30500 \\
+    -e MINIO_ENDPOINT_URL=http://<FLOATING-IP>:30900 \\
+    -e MINIO_ACCESS_KEY=minioadmin \\
+    -e MINIO_SECRET_KEY=minioadmin123 \\
+    -e GIT_SHA="$(git rev-parse HEAD)" \\
+    -v "$(pwd)/config.yaml:/app/training/config.yaml" \\
+    -v "$(pwd)/eval_layer1.py:/app/training/eval_layer1.py" \\
+    -v "$(pwd)/../data:/app/data" \\
     --entrypoint python \\
     categorizer-training-gpu \\
-    eval_layer1.py \\
+    /app/training/eval_layer1.py \\
       --run-id    <run-id> \\
       --model-type minilm \\
       --eval-csv  processed/eval_cex.csv \\
@@ -42,11 +49,18 @@ Docker — run eval_cex.csv (from training/):
 
 Docker — run eval_moneydata.csv (OOD, disable quality gate):
   docker run --rm --gpus all \\
-    -v $(pwd)/../data:/app/data \\
+    --network host \\
     -e MLFLOW_TRACKING_URI=http://<FLOATING-IP>:30500 \\
+    -e MINIO_ENDPOINT_URL=http://<FLOATING-IP>:30900 \\
+    -e MINIO_ACCESS_KEY=minioadmin \\
+    -e MINIO_SECRET_KEY=minioadmin123 \\
+    -e GIT_SHA="$(git rev-parse HEAD)" \\
+    -v "$(pwd)/config.yaml:/app/training/config.yaml" \\
+    -v "$(pwd)/eval_layer1.py:/app/training/eval_layer1.py" \\
+    -v "$(pwd)/../data:/app/data" \\
     --entrypoint python \\
     categorizer-training-gpu \\
-    eval_layer1.py \\
+    /app/training/eval_layer1.py \\
       --run-id    <run-id> \\
       --model-type minilm \\
       --eval-csv  processed/eval_moneydata.csv \\

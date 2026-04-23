@@ -78,31 +78,33 @@ docker run --rm \
 # Build (same image as single-run CPU)
 docker build -t categorizer-training .
 
-# Sweep all CPU models
+# Sweep a singe model (fasttext)
 docker run --rm \
   --network host \
   --entrypoint python \
   -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500 \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
   -e MINIO_ACCESS_KEY=minioadmin \
   -e MINIO_SECRET_KEY=minioadmin123 \
   -e GIT_SHA="$(git rev-parse HEAD)" \
-  -v "$(pwd)/config.yaml:/app/training/config.yaml" \
-  -v "$(pwd)/sweep-cpu.py:/app/training/sweep-cpu.py" \
-  ghcr.io/riyampatel2001/mlops-project-proj06/training-cpu:latest \
-  /app/training/sweep-cpu.py --config /app/training/config.yaml
-
-# Sweep a single model (e.g. fasttext)
-docker run --rm \
-  --network host \
-  --entrypoint python \
-  -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500 \
-  -e MINIO_ACCESS_KEY=minioadmin \
-  -e MINIO_SECRET_KEY=minioadmin123 \
-  -e GIT_SHA="$(git rev-parse HEAD)" \
+  -v "$(pwd)/train.py:/app/training/train.py" \
   -v "$(pwd)/config.yaml:/app/training/config.yaml" \
   -v "$(pwd)/sweep-cpu.py:/app/training/sweep-cpu.py" \
   ghcr.io/riyampatel2001/mlops-project-proj06/training-cpu:latest \
   /app/training/sweep-cpu.py --config /app/training/config.yaml --model fasttext
+
+# Sweep a single model (tfidf_logreg)
+docker run --rm \
+  --network host \
+  --entrypoint python \
+  -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
+  -e GIT_SHA="$(git rev-parse HEAD)" \
+  -v "$(pwd)/config.yaml:/app/training/config.yaml" \
+  -v "$(pwd)/sweep-cpu.py:/app/training/sweep-cpu.py" \
+  ghcr.io/riyampatel2001/mlops-project-proj06/training-cpu:latest \
+  /app/training/sweep-cpu.py --config /app/training/config.yaml --model tfidf_logreg
 ```
 
 ---
@@ -124,6 +126,58 @@ docker run --rm --gpus all \
   -v "$(pwd)/models/layer1/artifacts:/app/training/models/layer1/artifacts" \
   categorizer-training-gpu
 ```
+
+---
+
+### GPU evaluation (eval_layer1.py)
+
+`eval_layer1.py` evaluates a trained Layer 1 model (fasttext or transformer) on an arbitrary eval CSV from MinIO and logs results to MLflow. Pass `--no-quality-gate` for OOD datasets where lower scores are expected.
+
+```bash
+# Build (same image as GPU training)
+docker build -f Dockerfile.gpu -t categorizer-training-gpu .
+
+# Evaluate on eval_cex.csv
+docker run --rm --gpus all \
+  --network host \
+  -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500 \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
+  -e GIT_SHA="$(git rev-parse HEAD)" \
+  -v "$(pwd)/config.yaml:/app/training/config.yaml" \
+  -v "$(pwd)/eval_layer1.py:/app/training/eval_layer1.py" \
+  -v "$(pwd)/../data:/app/data" \
+  --entrypoint python \
+  categorizer-training-gpu \
+  /app/training/eval_layer1.py \
+    --run-id    <mlflow-run-id> \
+    --model-type minilm \
+    --eval-csv  processed/eval_cex.csv \
+    --run-name  eval-minilm-cex
+
+# Evaluate on eval_moneydata.csv (OOD — disable quality gate)
+docker run --rm --gpus all \
+  --network host \
+  -e MLFLOW_TRACKING_URI=http://129.114.25.143:30500 \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
+  -e GIT_SHA="$(git rev-parse HEAD)" \
+  -v "$(pwd)/config.yaml:/app/training/config.yaml" \
+  -v "$(pwd)/eval_layer1.py:/app/training/eval_layer1.py" \
+  -v "$(pwd)/../data:/app/data" \
+  --entrypoint python \
+  categorizer-training-gpu \
+  /app/training/eval_layer1.py \
+    --run-id    <mlflow-run-id> \
+    --model-type minilm \
+    --eval-csv  processed/eval_moneydata.csv \
+    --run-name  eval-minilm-moneydata \
+    --no-quality-gate
+```
+
+`--model-type` accepts `fasttext`, `minilm`, `distilbert`, or `mpnet`. `--run-id` is the MLflow run ID from a previous training run.
 
 ---
 
