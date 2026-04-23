@@ -11,14 +11,14 @@ data:
   train_csv: "http://129.114.25.143:30900/data/processed/train.csv"   # kept for reference
 
 layer1:
-  model_uri: "runs:/e99c0f7fe5554fd584c9efd2162f5572/fasttext.bin"             # replace with your fastText MLflow run URI
+  model_uri: "runs:/85b08fba7b6f4ad183702adad093b673/fasttext.bin"   # MLflow model artifact URI for layer 1 model
   model_version: "fasttext-v1"
 
 layer2:
   model_name: "sentence-transformers/all-mpnet-base-v2"
   max_length: 128
   k: 5
-  similarity_threshold: 0.85
+  similarity_threshold: 0.75
   min_history: 10
   store_path: "/app/artifacts/user_store.pkl"    # PVC mounted at /app/artifacts
 

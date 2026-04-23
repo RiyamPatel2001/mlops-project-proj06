@@ -79,20 +79,27 @@ result = predictor.predict(
 
 ### Build the user store (offline)
 
-Run once before serving to pre-populate the store from historical data:
+Run once before serving to pre-populate the store from historical data. Uses the first 70% of each user's transactions (by date) and saves `user_store.pkl` to the path set in `config.yaml` (`layer2.store_path`).
 
 ```bash
 # From project root
 python -m model_pipeline.layer2.build_store
 
-# Docker
-docker build -f model_pipeline/layer2/Dockerfile -t layer2 .
-docker run --rm \
-  -v $(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml \
-  layer2
+# Docker (build context: project root)
+docker build -f model_pipeline/layer2/Dockerfile -t actualbudget-evaluate .
+
+docker run --rm --network host \
+  -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
+  -v "$(pwd)/artifacts:/app/artifacts" \
+  -v "$(pwd)/training/models/layer1/artifacts/fasttext.bin:/app/training/models/layer1/artifacts/fasttext.bin" \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
+  actualbudget-evaluate \
+  python -m model_pipeline.layer2.build_store
 ```
 
-The script uses the first 70% of each user's transactions (by date) and saves `artifacts/user_store.pkl`.
+> `--network host` is required when running outside the k8s cluster so the container can reach the MinIO NodePort. `MINIO_ENDPOINT_URL` overrides the internal cluster DNS in `config.yaml`. The fasttext.bin mount is needed if the MLflow artifact backend does not have the model file — mount the locally trained artifact directly.
 
 ### Evaluate
 
@@ -102,64 +109,68 @@ There are two evaluation scripts with different purposes.
 
 ---
 
-#### 1. Cold-start demo — `evaluate_moneydata.py`
+#### 1. CEX evaluation — Layer 1 + Layer 2 on `eval_cex.csv`
 
-Bootstraps the Layer 2 store from moneydata 2015–2020 user history and evaluates the combined pipeline on the 2021–2022 holdout. Demonstrates that Layer 2 bootstrapping solves the cold-start problem for out-of-distribution (UK) data where Layer 1 alone achieves weighted F1 ≈ 0.11. Does not require MLflow.
+Uses `train.csv` (2022 CEX) to build the per-user store, then evaluates the full pipeline on `eval_cex.csv` (2024 CEX). Logs weighted F1, macro F1, Layer 2 routing %, per-source F1, and a per-row results CSV to MLflow.
+
+**Step 1 — Build user store** (must run before evaluate):
 
 ```bash
-# Local (from project root)
-python -m model_pipeline.layer2.evaluate_moneydata
-
-# Docker (build and run from project root)
-docker build -f model_pipeline/layer2/Dockerfile -t actualbudget-evaluate-moneydata .
-
-docker run --rm \
+docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
   -v "$(pwd)/artifacts:/app/artifacts" \
-  -e MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-minioadmin}" \
-  -e MINIO_SECRET_KEY="${MINIO_SECRET_KEY:-minioadmin123}" \
-  actualbudget-evaluate-moneydata \
-  python -m model_pipeline.layer2.evaluate_moneydata
+  -v "$(pwd)/training/models/layer1/artifacts/fasttext.bin:/app/training/models/layer1/artifacts/fasttext.bin" \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
+  actualbudget-evaluate \
+  python -m model_pipeline.layer2.build_store
+```
+
+**Step 2 — Evaluate Layer 1+2 on eval_cex.csv**:
+
+```bash
+docker run --rm --network host \
+  -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
+  -v "$(pwd)/artifacts:/app/artifacts" \
+  -v "$(pwd)/training/models/layer1/artifacts/fasttext.bin:/app/training/models/layer1/artifacts/fasttext.bin" \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
+  actualbudget-evaluate \
+  python -m model_pipeline.evaluate \
+    --eval-csv processed/eval_cex.csv \
+    --run-name fasttext-layer2-cex \
+    --experiment-suffix _cex
+```
+
+Results logged to MLflow under experiment `layer2-evaluation_cex`.
+
+---
+
+#### 2. MoneyData sliding window evaluation
+
+Simulates user onboarding from scratch over years 2015–2022. At each eval year, all prior years seed the Layer 2 store; the current year is the test set. Shows how pipeline F1 and Layer 2 routing improve as personal history accumulates. Logs per-year metrics as MLflow steps under experiment `layer1-layer2-evaluation`. No pre-built store needed — the store is built in-memory per year.
+
+```bash
+docker run --rm --network host \
+  -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
+  -v "$(pwd)/training/models/layer1/artifacts/fasttext.bin:/app/training/models/layer1/artifacts/fasttext.bin" \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
+  actualbudget-evaluate \
+  python -m model_pipeline.layer2.evaluate_moneydata_sliding
 ```
 
 ---
 
-#### 2. General-purpose pipeline evaluation — `model_pipeline.evaluate`
-
-Batch-evaluates the full Layer 1 + Layer 2 pipeline and logs metrics to MLflow. Supports a pre-split eval CSV via `--eval-csv` (e.g. `processed/eval_moneydata.csv`, `processed/eval_cex.csv`) or defaults to a 70/30 temporal split on the train CSV. Logs weighted F1, macro F1, Layer 2 routing percentage, per-source F1, and a per-row results CSV as MLflow artifacts.
-
-```bash
-# Local (from project root)
-python -m model_pipeline.evaluate \
-  --config model_pipeline/layer2/config.yaml \
-  --eval-csv processed/eval_moneydata.csv \
-  --run-name fasttext-layer2-realworld \
-  --experiment-suffix _moneydata
-
-# Docker (build and run from project root)
-docker build -f model_pipeline/layer2/Dockerfile -t categorizer-eval .
-
-docker run --rm \
-  -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
-  -e MLFLOW_TRACKING_URI=http://129.114.26.157:30500 \
-  -e MINIO_ACCESS_KEY=<your_access_key> \
-  -e MINIO_SECRET_KEY=<your_secret_key> \
-  -e GIT_SHA="$(git rev-parse HEAD)" \
-  categorizer-eval \
-  python -m model_pipeline.evaluate \
-    --config model_pipeline/layer2/config.yaml \
-    --eval-csv processed/eval_moneydata.csv \
-    --run-name fasttext-layer2-realworld \
-    --experiment-suffix _moneydata
-```
-
 | CLI flag | Purpose |
 |---|---|
-| `--config` | Path to `config.yaml` |
+| `--config` | Path to `config.yaml` (default: `model_pipeline/layer2/config.yaml`) |
 | `--eval-csv` | MinIO object path of a pre-split CSV; omit to use the default 70/30 split |
 | `--run-name` | MLflow run name |
-| `--experiment-suffix` | Appended to `experiment_name` from config (e.g. `_moneydata`) |
+| `--experiment-suffix` | Appended to `experiment_name` from config (e.g. `_cex`) |
 
 ## config.yaml reference
 
@@ -169,21 +180,29 @@ mlflow:
   experiment_name: layer2-evaluation
 
 minio:
-  endpoint: http://...
+  endpoint: http://minio.mlops.svc.cluster.local:9000   # internal k8s DNS
   bucket: data
   object: processed/train.csv
+  # Override endpoint for Docker runs outside k8s:
+  # -e MINIO_ENDPOINT_URL=http://<node-ip>:30900
 
 layer1:
   model_uri: runs:/<run_id>/fasttext.bin   # MLflow artifact URI
+  # If the MLflow artifact backend is unavailable, use a local file path:
+  # model_uri: "/app/training/models/layer1/artifacts/fasttext.bin"
   model_version: fasttext-v1
 
 layer2:
   model_name: sentence-transformers/all-mpnet-base-v2
-  max_length: 128          # tokenizer max length
-  k: 5                     # number of nearest neighbors
+  max_length: 128             # tokenizer max length
+  k: 5                        # number of nearest neighbors
   similarity_threshold: 0.85  # min cosine similarity to trust Layer 2
-  min_history: 10          # min stored transactions before Layer 2 activates
-  store_path: artifacts/user_store.pkl
+  min_history: 10             # min stored transactions before Layer 2 activates
+  store_path: /app/artifacts/user_store.pkl   # PVC mounted at /app/artifacts
+
+postgres:
+  dsn: "postgresql://mlops_user:mlops_pass@postgres.mlops.svc.cluster.local:5432/mlops"
+  # Override at runtime: -e POSTGRES_DSN=...
 ```
 
 ## User store format
