@@ -30,6 +30,7 @@ def evaluate_and_log(
     y_val: np.ndarray,
     label_classes: list[str],
     config: dict,
+    enforce_gate: bool = True,
 ) -> dict[str, float]:
     """
     Evaluate a fitted (vectorizer, classifier) pair on the validation set,
@@ -124,12 +125,14 @@ def evaluate_and_log(
     passed = weighted_f1 >= min_weighted and macro_f1 >= min_macro
     status = "passed" if passed else "failed"
     mlflow.set_tag("quality_gate", status)
+    mlflow.set_tag("quality_gate_enforced", str(enforce_gate).lower())
     print(
         f"[quality_gate] {status}  "
         f"(weighted_f1={weighted_f1:.4f}>={min_weighted}, "
         f"macro_f1={macro_f1:.4f}>={min_macro})"
+        + ("" if enforce_gate else "  [not enforced]")
     )
-    if not passed:
+    if not passed and enforce_gate:
         raise SystemExit(1)
 
     return {

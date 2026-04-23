@@ -269,8 +269,6 @@ def main() -> None:
     # ── Build eval config ─────────────────────────────────────────────────────
     eval_cfg = copy.deepcopy(cfg)
     eval_cfg["model"] = args.model_type
-    if args.no_quality_gate:
-        eval_cfg["quality_gate"] = {"weighted_f1": 0.0, "macro_f1": 0.0}
 
     # ── Evaluate + log ─────────────────────────────────────────────────────────
     with mlflow.start_run(run_name=run_name):
@@ -288,6 +286,7 @@ def main() -> None:
             y_val=y_val,
             label_classes=label_classes,
             config=eval_cfg,
+            enforce_gate=not args.no_quality_gate,
         )
 
     print(f"\n[done] Evaluation logged under run '{run_name}'")
