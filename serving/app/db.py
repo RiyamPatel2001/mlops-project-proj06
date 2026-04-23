@@ -1,4 +1,4 @@
-"""Async Postgres connection pool and queries for feedback_store + layer2_examples."""
+"""Async Postgres connection pool and queries for serving data + auth records."""
 
 from __future__ import annotations
 
@@ -39,6 +39,31 @@ def pool_available() -> bool:
 
 
 # ── Schema bootstrap ─────────────────────────────────────────────────────────
+
+_AUTH_USERS_DDL = """
+CREATE TABLE IF NOT EXISTS auth_users (
+    user_id              VARCHAR(36) PRIMARY KEY,
+    username             VARCHAR(100) NOT NULL,
+    username_normalized  VARCHAR(100) NOT NULL UNIQUE,
+    password_hash        TEXT NOT NULL,
+    created_at           TIMESTAMP DEFAULT now()
+);
+"""
+
+_AUTH_SESSIONS_DDL = """
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id          SERIAL PRIMARY KEY,
+    user_id     VARCHAR(36) NOT NULL REFERENCES auth_users(user_id) ON DELETE CASCADE,
+    token_hash  VARCHAR(64) NOT NULL UNIQUE,
+    created_at  TIMESTAMP DEFAULT now(),
+    expires_at  TIMESTAMP NOT NULL
+);
+"""
+
+_AUTH_SESSIONS_USER_IDX_DDL = """
+CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx
+    ON auth_sessions(user_id);
+"""
 
 _FEEDBACK_DDL = """
 CREATE TABLE IF NOT EXISTS feedback_store (
@@ -84,10 +109,126 @@ async def ensure_tables() -> None:
     if not _pool:
         return
     async with _pool.acquire() as conn:
+        await conn.execute(_AUTH_USERS_DDL)
+        await conn.execute(_AUTH_SESSIONS_DDL)
+        await conn.execute(_AUTH_SESSIONS_USER_IDX_DDL)
         await conn.execute(_FEEDBACK_DDL)
         await conn.execute(_LAYER2_DDL)
         await conn.execute(_SUGGESTION_DDL)
     logger.info("Database tables ensured")
+
+
+# ── Auth CRUD ────────────────────────────────────────────────────────────────
+
+async def create_auth_user(
+    user_id: str,
+    username: str,
+    username_normalized: str,
+    password_hash: str,
+) -> dict[str, Any] | None:
+    if not _pool:
+        return None
+
+    async with _pool.acquire() as conn:
+        try:
+            rec = await conn.fetchrow(
+                """
+                INSERT INTO auth_users
+                    (user_id, username, username_normalized, password_hash)
+                VALUES ($1, $2, $3, $4)
+                RETURNING user_id, username
+                """,
+                user_id,
+                username,
+                username_normalized,
+                password_hash,
+            )
+        except asyncpg.exceptions.UniqueViolationError:
+            return None
+
+        return dict(rec) if rec else None
+
+
+async def get_auth_user_by_username(
+    username_normalized: str,
+) -> dict[str, Any] | None:
+    if not _pool:
+        return None
+
+    async with _pool.acquire() as conn:
+        rec = await conn.fetchrow(
+            """
+            SELECT user_id, username, username_normalized, password_hash
+            FROM auth_users
+            WHERE username_normalized = $1
+            """,
+            username_normalized,
+        )
+        return dict(rec) if rec else None
+
+
+async def create_auth_session(
+    user_id: str,
+    token_hash: str,
+    expires_at: datetime,
+) -> None:
+    if not _pool:
+        return
+
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO auth_sessions (user_id, token_hash, expires_at)
+            VALUES ($1, $2, $3)
+            """,
+            user_id,
+            token_hash,
+            expires_at,
+        )
+
+
+async def get_auth_user_for_session(
+    token_hash: str,
+) -> dict[str, Any] | None:
+    if not _pool:
+        return None
+
+    async with _pool.acquire() as conn:
+        rec = await conn.fetchrow(
+            """
+            SELECT auth_users.user_id, auth_users.username, auth_sessions.expires_at
+            FROM auth_sessions
+            JOIN auth_users ON auth_users.user_id = auth_sessions.user_id
+            WHERE auth_sessions.token_hash = $1
+            """,
+            token_hash,
+        )
+        if not rec:
+            return None
+
+        expires_at = rec["expires_at"]
+        if expires_at is not None and expires_at <= datetime.utcnow():
+            await conn.execute(
+                "DELETE FROM auth_sessions WHERE token_hash = $1",
+                token_hash,
+            )
+            return None
+
+        return {
+            "user_id": rec["user_id"],
+            "username": rec["username"],
+        }
+
+
+async def delete_auth_session(token_hash: str) -> None:
+    if not _pool:
+        return
+
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM auth_sessions WHERE token_hash = $1",
+            token_hash,
+        )
 
 
 # ── Feedback CRUD ────────────────────────────────────────────────────────────

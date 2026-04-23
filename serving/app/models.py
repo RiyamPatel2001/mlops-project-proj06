@@ -3,17 +3,63 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _validate_username(username: str) -> str:
+    normalized = username.strip()
+    if not normalized:
+        raise ValueError('Username is required.')
+    return normalized
+
+
+def _validate_password(password: str) -> str:
+    if not password:
+        raise ValueError('Password is required.')
+    return password
+
+
+# ── /auth ────────────────────────────────────────────────────────────────────
+
+class AuthRegisterRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=100)
+    password: str = Field(..., min_length=1, max_length=200)
+
+    _normalize_username = field_validator('username')(_validate_username)
+    _validate_password = field_validator('password')(_validate_password)
+
+
+class AuthLoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=100)
+    password: str = Field(..., min_length=1, max_length=200)
+
+    _normalize_username = field_validator('username')(_validate_username)
+    _validate_password = field_validator('password')(_validate_password)
+
+
+class AuthRegisterResponse(BaseModel):
+    status: str = 'ok'
+    user_id: str
+    username: str
+
+
+class AuthLoginResponse(BaseModel):
+    status: str = 'ok'
+    user_id: str
+    username: str
+    token: str
+
+
+class AuthMeResponse(BaseModel):
+    status: str = 'ok'
+    user_id: str
+    username: str
 
 
 # ── /classify ────────────────────────────────────────────────────────────────
 
 class ClassifyRequest(BaseModel):
     transaction_id: str = Field(..., description="External transaction identifier")
-    user_id: str = Field(
-        ...,
-        description="ActualBudget account UUID used as the user identifier",
-    )
     payee: str = Field(..., description="Raw payee / merchant string")
     amount: float = Field(..., description="Signed amount in dollars (negative = expense)")
     date: str = Field(..., description="Transaction date YYYY-MM-DD")
@@ -40,7 +86,6 @@ class ClassifyResponse(BaseModel):
 
 class FeedbackRequest(BaseModel):
     transaction_id: str
-    user_id: str
     payee: str
     amount: int
     date: str
@@ -84,7 +129,6 @@ class FeedbackExportRow(BaseModel):
 # ── /tag-example ─────────────────────────────────────────────────────────────
 
 class TagExampleRequest(BaseModel):
-    user_id: str
     payee: str
     custom_category: str
 
@@ -108,7 +152,6 @@ class SuggestionAction(str, Enum):
 
 
 class SuggestionResponseRequest(BaseModel):
-    user_id: str
     transaction_id: str
     action: SuggestionAction
     suggested_category: str

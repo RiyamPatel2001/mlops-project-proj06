@@ -6,6 +6,11 @@ POSTGRES_DSN = os.getenv(
     "postgresql://mlops_user:mlops_pass@postgres.mlops.svc.cluster.local:5432/mlops",
 )
 
+AUTH_SESSION_TTL_HOURS = int(os.getenv("AUTH_SESSION_TTL_HOURS", "720"))
+AUTH_PASSWORD_HASH_ITERATIONS = int(
+    os.getenv("AUTH_PASSWORD_HASH_ITERATIONS", "200000")
+)
+
 MLFLOW_TRACKING_URI = os.getenv(
     "MLFLOW_TRACKING_URI",
     "http://mlflow-proj06.mlops.svc.cluster.local:5000",

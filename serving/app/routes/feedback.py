@@ -3,9 +3,10 @@
 import logging
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app import db
+from app.auth import AuthenticatedUser, require_authenticated_user
 from app.metrics import record_feedback, record_feedback_failure
 from app.models import FeedbackExportRow, FeedbackRequest, StatusResponse
 
@@ -14,7 +15,10 @@ router = APIRouter()
 
 
 @router.post("/feedback", response_model=StatusResponse)
-async def submit_feedback(req: FeedbackRequest) -> StatusResponse:
+async def submit_feedback(
+    req: FeedbackRequest,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> StatusResponse:
     if req.timestamp:
         raw_ts = req.timestamp.replace("Z", "+00:00")
         parsed_ts = datetime.fromisoformat(raw_ts)
@@ -33,7 +37,7 @@ async def submit_feedback(req: FeedbackRequest) -> StatusResponse:
 
     row = {
         "transaction_id": req.transaction_id,
-        "user_id": req.user_id,
+        "user_id": current_user.user_id,
         "payee": req.payee,
         "amount": req.amount,
         "date": parsed_date,
@@ -50,7 +54,7 @@ async def submit_feedback(req: FeedbackRequest) -> StatusResponse:
         logger.exception(
             "Feedback insert failed for transaction_id=%s user_id=%s",
             req.transaction_id,
-            req.user_id,
+            current_user.user_id,
         )
         record_feedback_failure(source=req.source)
         raise

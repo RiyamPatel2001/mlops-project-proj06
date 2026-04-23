@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import db, layer1
 from app.routes import (
+    auth,
     classify,
     custom_categories,
     feedback,
@@ -44,6 +45,7 @@ async def shutdown() -> None:
     await db.close_pool()
 
 
+app.include_router(auth.router)
 app.include_router(classify.router)
 app.include_router(feedback.router)
 app.include_router(tag_example.router)

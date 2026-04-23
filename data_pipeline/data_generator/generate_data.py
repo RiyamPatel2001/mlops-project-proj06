@@ -8,6 +8,7 @@ with the /classify and /feedback endpoints.
 
 Reads from production.csv (production simulation seed) from MinIO.
 For each transaction:
+  0. Registers/logs in a simulated user for the transaction's user_id
   1. Sends POST /classify with agreed contract format
   2. Receives category prediction + confidence
   3. Simulates user behavior:
@@ -47,10 +48,16 @@ MINIO_ACCESS_KEY     = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY     = os.environ.get("MINIO_SECRET_KEY", "minioadmin123")
 MINIO_BUCKET         = os.environ.get("MINIO_BUCKET",     "data")
 PRODUCTION_CSV_KEY   = "raw/production.csv"
+SERVING_USER_PASSWORD_PREFIX = os.environ.get(
+    "SERVING_USER_PASSWORD_PREFIX",
+    "proj06-user-password",
+)
 
 P_USER_CORRECTS_WRONG   = 0.70
 P_USER_CONFIRMS_CORRECT = 0.40
 P_USER_FILLS_BLANK      = 0.85
+
+AUTH_TOKENS_BY_USER_ID = {}
 
 
 def get_minio_client():
@@ -73,16 +80,59 @@ def load_production_csv():
     return list(reader)
 
 
+def ensure_auth_token(serving_url, user_id):
+    cached_token = AUTH_TOKENS_BY_USER_ID.get(user_id)
+    if cached_token:
+        return cached_token
+
+    username = user_id
+    password = f"{SERVING_USER_PASSWORD_PREFIX}-{user_id}"
+
+    try:
+        register_resp = requests.post(
+            f"{serving_url}/auth/register",
+            json={"username": username, "password": password},
+            timeout=5,
+        )
+        if register_resp.status_code not in (201, 409):
+            print(f"  [warn] register failed for {user_id}: {register_resp.status_code}")
+
+        login_resp = requests.post(
+            f"{serving_url}/auth/login",
+            json={"username": username, "password": password},
+            timeout=5,
+        )
+        if login_resp.status_code != 200:
+            print(f"  [warn] login failed for {user_id}: {login_resp.status_code}")
+            return None
+
+        token = login_resp.json().get("token")
+        if token:
+            AUTH_TOKENS_BY_USER_ID[user_id] = token
+        return token
+    except requests.exceptions.ConnectionError:
+        return None
+    except Exception as e:
+        print(f"  [warn] auth error for {user_id}: {e}")
+        return None
+
+
 def call_classify(serving_url, transaction):
+    token = ensure_auth_token(serving_url, transaction["user_id"])
     payload = {
         "transaction_id": transaction["transaction_id"],
-        "user_id":        transaction["user_id"],
         "payee":          transaction["payee"],
         "amount":         -abs(float(transaction["amount"])),
         "date":           transaction["date"],
     }
     try:
-        resp = requests.post(f"{serving_url}/classify", json=payload, timeout=5)
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        resp = requests.post(
+            f"{serving_url}/classify",
+            json=payload,
+            headers=headers,
+            timeout=5,
+        )
         if resp.status_code == 200:
             data = resp.json()
             return (
@@ -102,9 +152,16 @@ def call_classify(serving_url, transaction):
         return None, 0.0, "layer1", "v1"
 
 
-def call_feedback(serving_url, feedback_record):
+def call_feedback(serving_url, transaction_user_id, feedback_record):
     try:
-        resp = requests.post(f"{serving_url}/feedback", json=feedback_record, timeout=5)
+        token = ensure_auth_token(serving_url, transaction_user_id)
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        resp = requests.post(
+            f"{serving_url}/feedback",
+            json=feedback_record,
+            headers=headers,
+            timeout=5,
+        )
         return resp.status_code == 200
     except requests.exceptions.ConnectionError:
         return True
@@ -145,7 +202,6 @@ def simulate_user_interaction(transaction, predicted_category, confidence, sourc
 
     return {
         "transaction_id":      transaction["transaction_id"],
-        "user_id":             transaction["user_id"],
         "payee":               transaction["payee"],
         "amount":              -int(round(abs(float(transaction["amount"])) * 100)),
         "date":                transaction["date"],
@@ -204,7 +260,7 @@ def main():
         else:
             if feedback["reviewed_by_user"]:
                 stats["reviewed_by_user"] += 1
-            call_feedback(args.serving_url, feedback)
+            call_feedback(args.serving_url, txn["user_id"], feedback)
             stats["feedback_sent"] += 1
 
         if (i + 1) % 1000 == 0:

@@ -2,9 +2,10 @@
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app import db
+from app.auth import AuthenticatedUser, require_authenticated_user
 from app.metrics import record_suggestion_failure, record_suggestion_response
 from app.models import StatusResponse, SuggestionResponseRequest
 
@@ -13,10 +14,13 @@ router = APIRouter()
 
 
 @router.post("/suggestion-response", response_model=StatusResponse)
-async def suggestion_response(req: SuggestionResponseRequest) -> StatusResponse:
+async def suggestion_response(
+    req: SuggestionResponseRequest,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> StatusResponse:
     try:
         await db.insert_suggestion_response(
-            user_id=req.user_id,
+            user_id=current_user.user_id,
             transaction_id=req.transaction_id,
             action=req.action.value,
             suggested_category=req.suggested_category,
@@ -25,7 +29,7 @@ async def suggestion_response(req: SuggestionResponseRequest) -> StatusResponse:
         logger.exception(
             "Suggestion response insert failed for transaction_id=%s user_id=%s",
             req.transaction_id,
-            req.user_id,
+            current_user.user_id,
         )
         record_suggestion_failure(action=req.action.value)
         raise

@@ -992,7 +992,6 @@ export function ImportTransactionsModal({
   const recordMlFeedback = useEffectEvent((prediction: MLPrediction, finalLabel: string) => {
     void submitFeedback({
       transaction_id: prediction.id,
-      user_id: accountId,
       payee: prediction.payee,
       amount: prediction.amount,
       date: prediction.date,
