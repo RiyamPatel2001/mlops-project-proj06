@@ -30,7 +30,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/RiyamPatel2001/mlops-project-proj06
-    targetRevision: HEAD
+    targetRevision: refactor-project
     path: devops/k8s/serving
   destination:
     server: https://kubernetes.default.svc
