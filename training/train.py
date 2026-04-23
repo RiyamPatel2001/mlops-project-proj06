@@ -315,7 +315,7 @@ def _direct_minio_upload(local_path: str, cfg: dict) -> None:
     object_name   = f"{experiment_id}/{run_id}/artifacts/{filename}"
     bucket        = "mlflow-artifacts"
 
-    raw_endpoint = cfg["minio"]["endpoint"]
+    raw_endpoint = os.environ.get("MINIO_ENDPOINT_URL", cfg["minio"]["endpoint"])
     endpoint     = raw_endpoint.replace("http://", "").replace("https://", "")
     secure       = raw_endpoint.startswith("https://")
 

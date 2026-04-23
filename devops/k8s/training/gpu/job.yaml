@@ -18,6 +18,7 @@ spec:
       containers:
         - name: training-gpu
           image: ghcr.io/riyampatel2001/mlops-project-proj06/training-gpu:latest
+          imagePullPolicy: Always
           resources:
             requests:
               cpu: "2000m"

@@ -22,6 +22,7 @@ spec:
       containers:
         - name: training-cpu
           image: ghcr.io/riyampatel2001/mlops-project-proj06/training-cpu:latest
+          imagePullPolicy: Always
           resources:
             requests:
               cpu: "2000m"

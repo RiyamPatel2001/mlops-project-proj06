@@ -33,6 +33,13 @@ mlflow:
   tracking_uri:    http://129.114.25.143:30500    # swap for Chameleon VM IP at runtime
   experiment_name: layer1-categorizer
 
+# ── Quality gate ──────────────────────────────────────────────
+# Thresholds here override the defaults in evaluate.py.
+# Change these values and rebuild — no Python edits needed.
+quality_gate:
+  weighted_f1: 0.90
+  macro_f1:    0.90
+
 promotion:
   target_tier: fast
   registry_path: ../serving/layer1_registry.json
