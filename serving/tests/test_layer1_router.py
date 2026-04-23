@@ -3,7 +3,9 @@ from __future__ import annotations
 import threading
 import time
 import unittest
+from unittest import mock
 
+import app.layer1 as layer1_module
 from app.layer1 import (
     ModelRuntime,
     MultiModelRegistry,
@@ -168,6 +170,71 @@ class Layer1RouterTests(unittest.TestCase):
         thread.join(timeout=2.0)
 
         self.assertEqual(interactive.tier, "good")
+
+
+class TierConfigResolutionTests(unittest.TestCase):
+    @mock.patch("app.layer1._load_registry_overrides")
+    @mock.patch("app.layer1._latest_finished_run_id")
+    @mock.patch("app.layer1._run_is_servable")
+    def test_invalid_registry_run_falls_back_to_latest_same_model(
+        self,
+        mock_run_is_servable: mock.Mock,
+        mock_latest_finished_run_id: mock.Mock,
+        mock_load_registry_overrides: mock.Mock,
+    ) -> None:
+        mock_load_registry_overrides.return_value = {
+            "fast": {
+                "model_name": "fasttext",
+                "model_kind": "fasttext",
+                "run_id": "stale-fast-run",
+                "artifact_path": "fasttext.bin",
+            }
+        }
+        mock_run_is_servable.side_effect = (
+            lambda run_id, model_name: run_id != "stale-fast-run"
+        )
+        mock_latest_finished_run_id.side_effect = {
+            "minilm": "latest-minilm-run",
+            "fasttext": "latest-fasttext-run",
+            "tfidf_logreg": "latest-tfidf-run",
+        }.__getitem__
+
+        configs = layer1_module._build_tier_configs()
+        by_tier = {cfg.tier: cfg for cfg in configs}
+
+        self.assertEqual(by_tier[Tier.FAST].run_id, "latest-fasttext-run")
+        self.assertEqual(by_tier[Tier.FAST].name, "fasttext")
+        self.assertEqual(by_tier[Tier.GOOD].run_id, "latest-minilm-run")
+        self.assertEqual(by_tier[Tier.CHEAP].run_id, "latest-tfidf-run")
+
+    @mock.patch("app.layer1._load_registry_overrides")
+    @mock.patch("app.layer1._latest_finished_run_id")
+    @mock.patch("app.layer1._run_is_servable", return_value=True)
+    def test_valid_registry_run_is_preserved(
+        self,
+        _mock_run_is_servable: mock.Mock,
+        mock_latest_finished_run_id: mock.Mock,
+        mock_load_registry_overrides: mock.Mock,
+    ) -> None:
+        mock_load_registry_overrides.return_value = {
+            "cheap": {
+                "model_name": "tf_idf_logreg",
+                "model_kind": "sklearn",
+                "run_id": "registry-cheap-run",
+                "artifact_path": "tfidf_logreg.joblib",
+            }
+        }
+        mock_latest_finished_run_id.side_effect = {
+            "minilm": "latest-minilm-run",
+            "fasttext": "latest-fasttext-run",
+            "tfidf_logreg": "latest-tfidf-run",
+        }.__getitem__
+
+        configs = layer1_module._build_tier_configs()
+        by_tier = {cfg.tier: cfg for cfg in configs}
+
+        self.assertEqual(by_tier[Tier.CHEAP].run_id, "registry-cheap-run")
+        self.assertEqual(by_tier[Tier.CHEAP].name, "tfidf_logreg")
 
 
 if __name__ == "__main__":

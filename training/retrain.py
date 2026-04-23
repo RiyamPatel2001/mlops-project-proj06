@@ -36,7 +36,7 @@ from sklearn.metrics import accuracy_score
 sys.path.insert(0, os.path.dirname(__file__))
 import evaluate as eval_module
 import train as train_module
-from train import register_model_if_passed
+import utils as preprocess_utils
 from minio import Minio
 
 _MODEL_ARTIFACT_PATHS = {
@@ -53,6 +53,14 @@ _MODEL_KINDS = {
     "minilm": "hf",
     "distilbert": "hf",
     "mpnet": "hf",
+}
+
+_MODEL_TARGET_TIERS = {
+    "minilm": "good",
+    "distilbert": "good",
+    "mpnet": "good",
+    "fasttext": "fast",
+    "tfidf_logreg": "cheap",
 }
 
 
@@ -223,7 +231,15 @@ def _promotion_cfg(cfg: dict) -> dict[str, Any]:
 
 
 def _target_tier(cfg: dict) -> str:
-    return str(_promotion_cfg(cfg).get("target_tier", "fast")).strip().lower()
+    configured = str(_promotion_cfg(cfg).get("target_tier", "")).strip().lower()
+    if configured:
+        return configured
+
+    model_name = str(cfg.get("model", "")).strip().lower()
+    if model_name in _MODEL_TARGET_TIERS:
+        return _MODEL_TARGET_TIERS[model_name]
+
+    raise RuntimeError(f"No default serving tier is defined for model {model_name}")
 
 
 def _registry_path(cfg: dict) -> str:
@@ -236,6 +252,11 @@ def _registry_path(cfg: dict) -> str:
 
 def _minimum_accuracy_delta(cfg: dict) -> float:
     return float(_promotion_cfg(cfg).get("minimum_accuracy_delta", 0.0))
+
+
+def _comparison_eval_csv(cfg: dict) -> str | None:
+    value = str(_promotion_cfg(cfg).get("comparison_eval_csv", "")).strip()
+    return value or None
 
 
 def _load_registry(path: str) -> dict[str, Any]:
@@ -290,6 +311,75 @@ def _resolve_fasttext_path(local_path: str) -> str:
     raise FileNotFoundError(f"Could not find a FastText model beneath {local_path}")
 
 
+def _label_classes_from_mlflow(run_id: str) -> list[str] | None:
+    try:
+        local_path = mlflow.artifacts.download_artifacts(
+            run_id=run_id,
+            artifact_path="label_classes.json",
+        )
+    except Exception:
+        return None
+
+    try:
+        with open(local_path) as handle:
+            payload = json.load(handle)
+    except Exception:
+        return None
+
+    return payload if isinstance(payload, list) else None
+
+
+def _normalize_comparison_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    frame = df.copy()
+    if "label" in frame.columns and "category" not in frame.columns:
+        frame = frame.rename(columns={"label": "category"})
+
+    required = {"payee", "category"}
+    missing = sorted(required - set(frame.columns))
+    if missing:
+        raise RuntimeError(
+            "Comparison dataset is missing required columns: " + ", ".join(missing)
+        )
+
+    frame = frame.dropna(subset=["payee", "category"]).copy()
+    frame["payee_norm"] = frame["payee"].astype(str).map(preprocess_utils.normalize_payee)
+    return frame
+
+
+def _load_comparison_dataset(
+    client: Minio,
+    cfg: dict,
+    label_classes: list[str],
+) -> tuple[pd.Series, list[int], dict[str, Any]] | None:
+    object_name = _comparison_eval_csv(cfg)
+    if object_name is None:
+        return None
+
+    csv_bytes = _read_object_bytes(client, cfg["minio"]["bucket"], object_name)
+    frame = _normalize_comparison_dataframe(pd.read_csv(io.BytesIO(csv_bytes)))
+    label_to_index = {label: index for index, label in enumerate(label_classes)}
+    frame = frame[frame["category"].isin(label_to_index)].copy()
+    if frame.empty:
+        raise RuntimeError(
+            "Comparison dataset has no rows whose categories match the current label classes"
+        )
+
+    y_compare = [label_to_index[label] for label in frame["category"].tolist()]
+    metadata = {
+        "comparison_eval_csv": object_name,
+        "comparison_row_count": len(frame),
+    }
+    return frame["payee_norm"], y_compare, metadata
+
+
+def _candidate_accuracy(vec, clf, X_eval, y_eval) -> float:
+    if vec is not None:
+        predictions = clf.predict(vec.transform(X_eval))
+    else:
+        predictions = clf.predict(X_eval)
+    return float(accuracy_score(y_eval, predictions))
+
+
 def _accuracy_for_fasttext(
     ref: dict[str, Any],
     X_val,
@@ -339,6 +429,49 @@ def _accuracy_for_sklearn(ref: dict[str, Any], X_val, y_val) -> float:
     return float(accuracy_score(y_val, predictions))
 
 
+def _accuracy_for_hf(
+    ref: dict[str, Any],
+    X_val,
+    y_val,
+    label_classes: list[str],
+) -> float:
+    import torch
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+    local_dir = mlflow.artifacts.download_artifacts(
+        run_id=ref["run_id"],
+        artifact_path=ref["artifact_path"],
+    )
+    tokenizer = AutoTokenizer.from_pretrained(local_dir)
+    model = AutoModelForSequenceClassification.from_pretrained(local_dir)
+    model.eval()
+
+    ref_label_classes = _label_classes_from_mlflow(ref["run_id"]) or list(label_classes)
+    current_label_lookup = {
+        label: index for index, label in enumerate(label_classes)
+    }
+
+    predictions = []
+    for text in X_val.tolist() if hasattr(X_val, "tolist") else X_val:
+        inputs = tokenizer(
+            str(text),
+            truncation=True,
+            max_length=128,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            logits = model(**inputs).logits
+        predicted_index = int(torch.argmax(logits, dim=-1).item())
+        predicted_label = (
+            ref_label_classes[predicted_index]
+            if predicted_index < len(ref_label_classes)
+            else "Other"
+        )
+        predictions.append(current_label_lookup.get(predicted_label, 0))
+
+    return float(accuracy_score(y_val, predictions))
+
+
 def _production_accuracy(
     ref: dict[str, Any] | None,
     X_val,
@@ -353,19 +486,20 @@ def _production_accuracy(
         return _accuracy_for_fasttext(ref, X_val, y_val, label_classes)
     if kind == "sklearn":
         return _accuracy_for_sklearn(ref, X_val, y_val)
+    if kind == "hf":
+        return _accuracy_for_hf(ref, X_val, y_val, label_classes)
 
-    print(f"[promotion] Skipping production comparison for unsupported model kind: {kind}")
-    return None
+    raise RuntimeError(f"Unsupported production model kind for comparison: {kind}")
 
 
 def _should_promote(
-    candidate_f1: float,
-    production_f1: float | None,
+    candidate_accuracy: float,
+    production_accuracy: float | None,
     cfg: dict,
 ) -> bool:
-    if production_f1 is None:
+    if production_accuracy is None:
         return True
-    return candidate_f1 > production_f1 + _minimum_accuracy_delta(cfg)
+    return candidate_accuracy >= production_accuracy + _minimum_accuracy_delta(cfg)
 
 
 def _candidate_reference(
@@ -382,6 +516,7 @@ def _candidate_reference(
         "run_id": run_id,
         "artifact_path": artifact_path,
         "model_uri": f"runs:/{run_id}/{artifact_path}",
+        "accuracy": round(float(metrics["accuracy"]), 6),
         "weighted_f1": round(float(metrics["weighted_f1"]), 6),
         "macro_f1": round(float(metrics["macro_f1"]), 6),
         "dataset_version": dataset_meta["version"],
@@ -409,6 +544,19 @@ def _latest_active_dataset_version(active_ref: dict[str, Any] | None) -> str | N
         return None
     version = str(active_ref.get("dataset_version", "")).strip()
     return version or None
+
+
+def _quality_gate_status() -> str:
+    active_run = mlflow.active_run()
+    tags = getattr(getattr(active_run, "data", None), "tags", None)
+    if isinstance(tags, dict):
+        return str(tags.get("quality_gate", "unknown"))
+
+    mlflow_tags = getattr(mlflow, "tags", None)
+    if isinstance(mlflow_tags, dict):
+        return str(mlflow_tags.get("quality_gate", "unknown"))
+
+    return "unknown"
 
 
 def main() -> None:
@@ -462,6 +610,13 @@ def main() -> None:
         df_combined.to_csv(merged_path, index=False)
         cfg["data"]["raw_path"] = merged_path
 
+        comparison_target = "validation_split"
+        comparison_rows = 0
+        production_accuracy = None
+        candidate_accuracy = None
+        accuracy_delta = None
+        promotion_status = "unknown"
+
         train_module.setup_mlflow(cfg)
 
         with mlflow.start_run(run_name=f"{cfg['model']}-retrain"):
@@ -496,19 +651,70 @@ def main() -> None:
 
             train_module.save_and_log_model(vec, clf, cfg)
 
-            run_id = mlflow.active_run().info.run_id
-            register_model_if_passed(cfg, run_id)
+            comparison = _load_comparison_dataset(client, cfg, label_classes)
+            if comparison is None:
+                compare_X, compare_y = X_val, y_val
+                comparison_rows = len(y_val)
+                candidate_accuracy = float(metrics["accuracy"])
+            else:
+                compare_X, compare_y, comparison_meta = comparison
+                comparison_target = comparison_meta["comparison_eval_csv"]
+                comparison_rows = comparison_meta["comparison_row_count"]
+                candidate_accuracy = _candidate_accuracy(vec, clf, compare_X, compare_y)
 
-            quality_gate = mlflow.active_run().data.tags.get("quality_gate", "unknown")
+            production_accuracy = _production_accuracy(
+                active_ref,
+                compare_X,
+                compare_y,
+                label_classes,
+            )
+            accuracy_delta = (
+                candidate_accuracy
+                if production_accuracy is None
+                else candidate_accuracy - production_accuracy
+            )
+
+            mlflow.log_metric("candidate_accuracy", candidate_accuracy)
+            if production_accuracy is not None:
+                mlflow.log_metric("production_accuracy", production_accuracy)
+            mlflow.log_metric("accuracy_delta", accuracy_delta)
+            mlflow.set_tag("comparison_target", comparison_target)
+            mlflow.log_param("comparison_target", comparison_target)
+            mlflow.log_param("comparison_row_count", comparison_rows)
+
+            if active_ref is not None:
+                mlflow.set_tag("serving_run_id_before", active_ref["run_id"])
+
+            candidate_ref = _candidate_reference(cfg, run_id, metrics, dataset_meta)
+            candidate_ref["comparison_target"] = comparison_target
+            candidate_ref["comparison_accuracy"] = round(candidate_accuracy, 6)
+
+            if _should_promote(candidate_accuracy, production_accuracy, cfg):
+                _update_registry(cfg, registry, candidate_ref, registry_path)
+                promotion_status = "promoted"
+            else:
+                promotion_status = "rejected"
+
+            mlflow.set_tag("promotion_status", promotion_status)
+
+            quality_gate = _quality_gate_status()
 
         # ── Step 6: Summary ───────────────────────────────────────────────────
         print(
             f"\n{'═'*55}\n"
             f"  Dataset        : {dataset_meta['version']}\n"
             f"  Model          : {cfg['model']}\n"
+            f"  Target tier    : {_target_tier(cfg)}\n"
+            f"  Compare on     : {comparison_target} ({comparison_rows:,} rows)\n"
+            f"  Candidate Acc  : {candidate_accuracy:.4f}\n"
+            f"  Production Acc : "
+            f"{'n/a' if production_accuracy is None else f'{production_accuracy:.4f}'}\n"
+            f"  Accuracy delta : "
+            f"{'n/a' if accuracy_delta is None else f'{accuracy_delta:.4f}'}\n"
             f"  Weighted F1    : {metrics['weighted_f1']:.4f}\n"
             f"  Macro F1       : {metrics['macro_f1']:.4f}\n"
             f"  Quality gate   : {quality_gate}\n"
+            f"  Promotion      : {promotion_status}\n"
             f"{'═'*55}"
         )
 

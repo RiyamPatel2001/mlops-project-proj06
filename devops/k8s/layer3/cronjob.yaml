@@ -53,6 +53,30 @@ spec:
                   value: "data"
                 - name: MINIO_PREFIX
                   value: "data/retraining"
+                - name: MLFLOW_TRACKING_URI
+                  value: "http://mlflow-proj06.mlops.svc.cluster.local:5000"
+                - name: POSTGRES_HOST
+                  value: "postgres.mlops.svc.cluster.local"
+                - name: POSTGRES_PORT
+                  value: "5432"
+                - name: POSTGRES_DB
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-credentials
+                      key: dbname
+                - name: POSTGRES_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-credentials
+                      key: username
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-credentials
+                      key: password
+              volumeMounts:
+                - name: artifacts
+                  mountPath: /app/artifacts
               resources:
                 requests:
                   cpu: "500m"
@@ -60,3 +84,7 @@ spec:
                 limits:
                   cpu: "1000m"
                   memory: "2Gi"
+          volumes:
+            - name: artifacts
+              persistentVolumeClaim:
+                claimName: artifacts-pvc

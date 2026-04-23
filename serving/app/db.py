@@ -104,6 +104,24 @@ CREATE TABLE IF NOT EXISTS suggestion_responses (
 );
 """
 
+_LAYER3_SUGGESTIONS_DDL = """
+CREATE TABLE IF NOT EXISTS layer3_suggestions (
+    id                      SERIAL PRIMARY KEY,
+    user_id                 TEXT NOT NULL,
+    cluster_id              TEXT NOT NULL,
+    suggested_category_name TEXT NOT NULL,
+    payee_list              TEXT[] NOT NULL,
+    status                  TEXT NOT NULL DEFAULT 'pending'
+                            CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+"""
+
+_LAYER3_SUGGESTIONS_USER_STATUS_IDX_DDL = """
+CREATE INDEX IF NOT EXISTS idx_layer3_suggestions_user_status
+    ON layer3_suggestions (user_id, status);
+"""
+
 
 async def ensure_tables() -> None:
     if not _pool:
@@ -115,6 +133,8 @@ async def ensure_tables() -> None:
         await conn.execute(_FEEDBACK_DDL)
         await conn.execute(_LAYER2_DDL)
         await conn.execute(_SUGGESTION_DDL)
+        await conn.execute(_LAYER3_SUGGESTIONS_DDL)
+        await conn.execute(_LAYER3_SUGGESTIONS_USER_STATUS_IDX_DDL)
     logger.info("Database tables ensured")
 
 

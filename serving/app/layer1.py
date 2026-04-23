@@ -31,6 +31,7 @@ from typing import Callable, Optional
 from app.config import (
     LABEL_CLASSES,
     LAYER1_HF_MAX_LENGTH,
+    MLFLOW_EXPERIMENT_NAME,
     MLFLOW_TRACKING_URI,
     MODEL_REGISTRY_PATH,
     MODEL_REGISTRY_REFRESH_SECONDS,
@@ -53,6 +54,10 @@ from app.config import (
 )
 
 logger = logging.getLogger(__name__)
+
+_MODEL_NAME_ALIASES = {
+    "tf_idf_logreg": "tfidf_logreg",
+}
 
 
 class Tier(str, Enum):
@@ -583,6 +588,68 @@ def _load_registry_overrides() -> dict[str, dict[str, str]]:
     return tiers if isinstance(tiers, dict) else {}
 
 
+def _canonical_model_name(name: str) -> str:
+    normalized = name.strip().lower()
+    return _MODEL_NAME_ALIASES.get(normalized, normalized)
+
+
+def _mlflow_client():
+    import mlflow
+    from mlflow.tracking import MlflowClient
+
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    return MlflowClient()
+
+
+def _run_is_servable(run_id: str, model_name: str) -> bool:
+    canonical_name = _canonical_model_name(model_name)
+    try:
+        run = _mlflow_client().get_run(run_id)
+    except Exception:
+        return False
+
+    status = str(getattr(run.info, "status", "")).strip().upper()
+    if status != "FINISHED":
+        return False
+
+    actual_model = _canonical_model_name(run.data.params.get("model", ""))
+    if actual_model and actual_model != canonical_name:
+        return False
+
+    return True
+
+
+def _latest_finished_run_id(model_name: str) -> str:
+    canonical_name = _canonical_model_name(model_name)
+    client = _mlflow_client()
+    experiment = client.get_experiment_by_name(MLFLOW_EXPERIMENT_NAME)
+    if experiment is None:
+        raise RuntimeError(
+            f"MLflow experiment {MLFLOW_EXPERIMENT_NAME!r} does not exist"
+        )
+
+    runs = client.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string=(
+            f"attributes.status = 'FINISHED' and params.model = '{canonical_name}'"
+        ),
+        max_results=1,
+        order_by=["attributes.start_time DESC"],
+    )
+    if not runs:
+        raise RuntimeError(
+            f"No FINISHED MLflow runs found for model {canonical_name!r}"
+        )
+
+    run_id = runs[0].info.run_id
+    logger.info(
+        "Resolved latest MLflow run for model=%s -> %s",
+        canonical_name,
+        run_id,
+    )
+    return run_id
+
+
 def _build_tier_configs() -> list[TierConfig]:
     overrides = _load_registry_overrides()
     tier_configs: list[TierConfig] = []
@@ -590,12 +657,27 @@ def _build_tier_configs() -> list[TierConfig]:
     for tier in (Tier.GOOD, Tier.FAST, Tier.CHEAP):
         default_cfg = _DEFAULT_TIER_CONFIGS[tier]
         override = overrides.get(tier.value, {})
+        model_name = _canonical_model_name(
+            str(override.get("model_name", default_cfg.name))
+        )
+        configured_run_id = str(override.get("run_id", default_cfg.run_id)).strip()
+        if configured_run_id and _run_is_servable(configured_run_id, model_name):
+            run_id = configured_run_id
+        else:
+            if configured_run_id:
+                logger.warning(
+                    "Ignoring stale or invalid registry run for tier=%s model=%s run_id=%s",
+                    tier.value,
+                    model_name,
+                    configured_run_id,
+                )
+            run_id = _latest_finished_run_id(model_name)
         tier_configs.append(
             TierConfig(
                 tier=tier,
-                name=str(override.get("model_name", default_cfg.name)),
+                name=model_name,
                 kind=str(override.get("model_kind", default_cfg.kind)).lower(),
-                run_id=str(override.get("run_id", default_cfg.run_id)),
+                run_id=run_id,
                 artifact_path=str(
                     override.get("artifact_path", default_cfg.artifact_path)
                 ),
