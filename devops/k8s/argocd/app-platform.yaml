@@ -15,7 +15,7 @@ spec:
     path: devops/k8s
     directory:
       recurse: true
-      exclude: "{argocd/*,serving/*}"
+      exclude: "{argocd/*,serving/*,data_pipelines/*,training/*}"
   destination:
     server: https://kubernetes.default.svc
     namespace: mlops
