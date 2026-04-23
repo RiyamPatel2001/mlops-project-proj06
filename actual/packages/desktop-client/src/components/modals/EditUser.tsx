@@ -14,6 +14,7 @@ import { PossibleRoles } from '@actual-app/core/shared/user';
 import type { NewUserEntity, UserEntity } from '@actual-app/core/types/models';
 
 import { Modal, ModalCloseButton, ModalHeader } from '#components/common/Modal';
+import { useLoginMethod } from '#components/ServerContext';
 import { Checkbox, FormField, FormLabel } from '#components/forms';
 import { popModal } from '#modals/modalsSlice';
 import type { Modal as ModalType } from '#modals/modalsSlice';
@@ -51,6 +52,8 @@ function useGetUserDirectoryErrors() {
         return t(
           'Selected role does not exists, possibly a bug? Visit https://actualbudget.org/contact/ for support.',
         );
+      case 'invalid-password':
+        return t('Please provide a password for this user.');
       default:
         return t(
           'An internal error occurred, sorry! Visit https://actualbudget.org/contact/ for support. (ref: {{reason}})',
@@ -163,8 +166,10 @@ type EditUserProps = {
 function EditUser({ defaultUser, onSave: originalOnSave }: EditUserProps) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
+  const loginMethod = useLoginMethod();
   const isExistingUser = 'id' in defaultUser && !!defaultUser.id;
   const isOwner = 'owner' in defaultUser && defaultUser.owner;
+  const usesLocalPasswords = loginMethod === 'password';
 
   const [userName, setUserName] = useState<string>(defaultUser.userName ?? '');
   const [displayName, setDisplayName] = useState<string>(
@@ -172,6 +177,8 @@ function EditUser({ defaultUser, onSave: originalOnSave }: EditUserProps) {
   );
   const [enabled, setEnabled] = useState<boolean>(defaultUser.enabled);
   const [role, setRole] = useState<string>(defaultUser.role ?? 'BASIC');
+  const [password, setPassword] = useState<string>('');
+  const [confirmPassword, setConfirmPassword] = useState<string>('');
   const [error, setError] = useState<string>('');
 
   async function onSave() {
@@ -183,6 +190,14 @@ function EditUser({ defaultUser, onSave: originalOnSave }: EditUserProps) {
       setError(t('Role is required.'));
       return;
     }
+    if (usesLocalPasswords && !isExistingUser && !password) {
+      setError(t('Password is required.'));
+      return;
+    }
+    if (password && password !== confirmPassword) {
+      setError(t('Passwords do not match.'));
+      return;
+    }
     const user: User = {
       ...defaultUser,
       id: isExistingUser ? defaultUser.id : '',
@@ -191,6 +206,7 @@ function EditUser({ defaultUser, onSave: originalOnSave }: EditUserProps) {
       displayName,
       enabled,
       role,
+      ...(password ? { password } : {}),
     };
 
     const method = isExistingUser ? 'user-update' : 'user-add';
@@ -217,7 +233,11 @@ function EditUser({ defaultUser, onSave: originalOnSave }: EditUserProps) {
               marginTop: 5,
             }}
           >
-            <Trans>The username registered within the OpenID provider.</Trans>
+            {usesLocalPasswords ? (
+              <Trans>The username this person will use to sign in.</Trans>
+            ) : (
+              <Trans>The username registered within the OpenID provider.</Trans>
+            )}
           </Text>
         </FormField>
         <View
@@ -274,10 +294,16 @@ function EditUser({ defaultUser, onSave: originalOnSave }: EditUserProps) {
               marginTop: 5,
             }}
           >
-            <Trans>
-              If left empty, it will be updated from your OpenID provider on the
-              user&apos;s login, if available there.
-            </Trans>
+            {usesLocalPasswords ? (
+              <Trans>
+                If left empty, the username will be shown throughout the app.
+              </Trans>
+            ) : (
+              <Trans>
+                If left empty, it will be updated from your OpenID provider on
+                the user&apos;s login, if available there.
+              </Trans>
+            )}
           </View>
           <View
             style={{
@@ -307,6 +333,43 @@ function EditUser({ defaultUser, onSave: originalOnSave }: EditUserProps) {
           />
         </FormField>
       </SpaceBetween>
+      {usesLocalPasswords && (
+        <SpaceBetween style={{ marginTop: 10 }}>
+          <FormField style={{ flex: 1 }}>
+            <FormLabel
+              title={isExistingUser ? t('New Password') : t('Password')}
+              htmlFor="password-field"
+            />
+            <Input
+              id="password-field"
+              type="password"
+              value={password}
+              onChangeValue={setPassword}
+              placeholder={
+                isExistingUser ? t('(Leave blank to keep current password)') : ''
+              }
+              style={{
+                borderColor: theme.buttonMenuBorder,
+              }}
+            />
+          </FormField>
+          <FormField style={{ flex: 1 }}>
+            <FormLabel
+              title={t('Confirm Password')}
+              htmlFor="confirm-password-field"
+            />
+            <Input
+              id="confirm-password-field"
+              type="password"
+              value={confirmPassword}
+              onChangeValue={setConfirmPassword}
+              style={{
+                borderColor: theme.buttonMenuBorder,
+              }}
+            />
+          </FormField>
+        </SpaceBetween>
+      )}
       <RoleDescription />
 
       <SpaceBetween

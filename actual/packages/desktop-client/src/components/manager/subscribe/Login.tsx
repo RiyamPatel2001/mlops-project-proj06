@@ -31,6 +31,7 @@ import { Title, useBootstrapped } from './common';
 import { OpenIdForm } from './OpenIdForm';
 
 function PasswordLogin({ setError, dispatch }) {
+  const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { t } = useTranslation();
@@ -44,6 +45,7 @@ function PasswordLogin({ setError, dispatch }) {
     setError(null);
     setLoading(true);
     const { error } = await send('subscribe-sign-in', {
+      userName,
       password,
       loginMethod: 'password',
     });
@@ -59,31 +61,57 @@ function PasswordLogin({ setError, dispatch }) {
   return (
     <View
       style={{
-        flexDirection: isNarrowWidth ? 'column' : 'row',
+        flexDirection: 'column',
         marginTop: 5,
         gap: '1rem',
       }}
     >
       <BigInput
         autoFocus
-        placeholder={t('Password')}
-        type="password"
-        onChangeValue={setPassword}
-        style={{ flex: 1 }}
+        placeholder={t('Username (optional)')}
+        onChangeValue={setUserName}
+        style={{
+          width: '100%',
+        }}
         onEnter={onSubmitPassword}
       />
-      <ButtonWithLoading
-        variant="primary"
-        isLoading={loading}
+      <Text
         style={{
-          fontSize: 15,
-          width: isNarrowWidth ? '100%' : 170,
-          ...(isNarrowWidth ? { padding: 10 } : null),
+          ...styles.verySmallText,
+          color: theme.pageTextLight,
+          marginTop: -10,
         }}
-        onPress={onSubmitPassword}
       >
-        <Trans>Sign in</Trans>
-      </ButtonWithLoading>
+        <Trans>
+          Leave the username empty to use the shared admin password.
+        </Trans>
+      </Text>
+      <View
+        style={{
+          flexDirection: isNarrowWidth ? 'column' : 'row',
+          gap: '1rem',
+        }}
+      >
+        <BigInput
+          placeholder={t('Password')}
+          type="password"
+          onChangeValue={setPassword}
+          style={{ flex: 1 }}
+          onEnter={onSubmitPassword}
+        />
+        <ButtonWithLoading
+          variant="primary"
+          isLoading={loading}
+          style={{
+            fontSize: 15,
+            width: isNarrowWidth ? '100%' : 170,
+            ...(isNarrowWidth ? { padding: 10 } : null),
+          }}
+          onPress={onSubmitPassword}
+        >
+          <Trans>Sign in</Trans>
+        </ButtonWithLoading>
+      </View>
     </View>
   );
 }

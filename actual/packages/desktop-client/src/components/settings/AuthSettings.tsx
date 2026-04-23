@@ -72,7 +72,9 @@ export function AuthSettings() {
               </Button>
               <Label
                 style={{ paddingTop: 5 }}
-                title={t('OpenID is required to enable multi-user mode.')}
+                title={t(
+                  'OpenID is optional when you want sign-in to be handled by an external identity provider.',
+                )}
               />
             </>
           )}
@@ -100,7 +102,8 @@ export function AuthSettings() {
               {multiuserEnabled && (
                 <Text style={{ paddingTop: 5, color: theme.errorText }}>
                   <Trans>
-                    Disabling OpenID will deactivate multi-user mode.
+                    Disabling OpenID will switch the server back to local
+                    username/password sign-in.
                   </Trans>
                 </Text>
               )}

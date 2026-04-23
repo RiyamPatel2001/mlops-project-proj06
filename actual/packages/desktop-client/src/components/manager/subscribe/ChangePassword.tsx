@@ -41,14 +41,13 @@ export function ChangePassword() {
       setError(error);
     } else {
       setMessage(t('Password successfully changed'));
-      await send('subscribe-sign-in', { password });
       void navigate('/');
     }
   }
 
   return (
     <View style={{ maxWidth: 500, marginTop: -30 }}>
-      <Title text={t('Change server password')} />
+      <Title text={t('Change password')} />
       <Text
         style={{
           fontSize: 16,
@@ -57,8 +56,8 @@ export function ChangePassword() {
         }}
       >
         <Trans>
-          This will change the password for this server instance. All existing
-          sessions will stay logged in.
+          This updates the password for your current sign-in. Existing sessions
+          will stay logged in.
         </Trans>
       </Text>
 

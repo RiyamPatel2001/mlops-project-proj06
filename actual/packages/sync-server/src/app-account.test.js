@@ -2,7 +2,7 @@ import request from 'supertest';
 import { v4 as uuidv4 } from 'uuid';
 
 import { getAccountDb, getLoginMethod, getServerPrefs } from './account-db';
-import { bootstrapPassword } from './accounts/password';
+import { bootstrapPassword, changePassword } from './accounts/password';
 import { handlers as app, authRateLimiter } from './app-account';
 
 const ADMIN_ROLE = 'ADMIN';
@@ -17,6 +17,10 @@ const createUser = (userId, userName, role, owner = 0, enabled = 1) => {
 };
 
 const deleteUser = userId => {
+  getAccountDb().mutate('DELETE FROM sessions WHERE user_id = ?', [userId]);
+  getAccountDb().mutate('DELETE FROM user_passwords WHERE user_id = ?', [
+    userId,
+  ]);
   getAccountDb().mutate('DELETE FROM user_access WHERE user_id = ?', [userId]);
   getAccountDb().mutate('DELETE FROM users WHERE id = ?', [userId]);
 };
@@ -43,6 +47,10 @@ const insertAuthRow = (method, active, extraData = null) => {
 
 const clearAuth = () => {
   getAccountDb().mutate('DELETE FROM auth');
+};
+
+const clearUserPasswords = () => {
+  getAccountDb().mutate('DELETE FROM user_passwords');
 };
 
 beforeEach(() => {
@@ -114,6 +122,7 @@ describe('/change-password', () => {
     deleteUser(adminUserId);
     deleteUser(basicUserId);
     clearAuth();
+    clearUserPasswords();
   });
 
   it('should return 401 if no session token is provided', async () => {
@@ -222,6 +231,7 @@ describe('getLoginMethod()', () => {
 describe('/login', () => {
   afterEach(() => {
     clearAuth();
+    clearUserPasswords();
   });
 
   it('should allow password login when OIDC is the active method', async () => {
@@ -253,6 +263,45 @@ describe('/login', () => {
 
     expect(res.statusCode).toEqual(400);
     expect(res.body).toHaveProperty('reason', 'invalid-password');
+  });
+
+  it('should allow username/password login for a named user', async () => {
+    const userId = uuidv4();
+    createUser(userId, 'user1', BASIC_ROLE);
+    changePassword('secret-password', userId);
+
+    const res = await request(app)
+      .post('/login')
+      .send({
+        loginMethod: 'password',
+        userName: 'user1',
+        password: 'secret-password',
+      });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toHaveProperty('status', 'ok');
+    expect(res.body.data).toHaveProperty('token');
+
+    deleteUser(userId);
+  });
+
+  it('should reject username/password login when the username password is wrong', async () => {
+    const userId = uuidv4();
+    createUser(userId, 'user2', BASIC_ROLE);
+    changePassword('secret-password', userId);
+
+    const res = await request(app)
+      .post('/login')
+      .send({
+        loginMethod: 'password',
+        userName: 'user2',
+        password: 'wrong-password',
+      });
+
+    expect(res.statusCode).toEqual(400);
+    expect(res.body).toHaveProperty('reason', 'invalid-password');
+
+    deleteUser(userId);
   });
 });
 

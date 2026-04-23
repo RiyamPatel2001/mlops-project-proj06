@@ -2,6 +2,7 @@ import request from 'supertest';
 import { v4 as uuidv4 } from 'uuid';
 
 import { getAccountDb } from './account-db';
+import { bootstrapPassword } from './accounts/password';
 import { handlers as app } from './app-admin';
 
 const ADMIN_ROLE = 'ADMIN';
@@ -17,6 +18,7 @@ const createUser = (userId, userName, role, owner = 0, enabled = 1) => {
 
 const deleteUser = userId => {
   getAccountDb().mutate('DELETE FROM user_access WHERE user_id = ?', [userId]);
+  getAccountDb().mutate('DELETE FROM user_passwords WHERE user_id = ?', [userId]);
   getAccountDb().mutate('DELETE FROM users WHERE id = ?', [userId]);
 };
 
@@ -28,6 +30,10 @@ const createSession = (userId, sessionToken) => {
 };
 
 const generateSessionToken = () => `token-${uuidv4()}`;
+
+const clearAuth = () => {
+  getAccountDb().mutate('DELETE FROM auth');
+};
 
 describe('/admin', () => {
   describe('/owner-created', () => {
@@ -98,6 +104,8 @@ describe('/admin', () => {
           deleteUser(duplicateUserId);
           duplicateUserId = null;
         }
+
+        clearAuth();
       });
 
       it('should return 200 and create a new user', async () => {
@@ -146,6 +154,51 @@ describe('/admin', () => {
         expect(res.body.status).toBe('error');
         expect(res.body.reason).toBe('user-already-exists');
       });
+
+      it('should require a password when local password auth is active', async () => {
+        bootstrapPassword('server-password');
+
+        const res = await request(app)
+          .post('/users')
+          .send({
+            userName: 'user-without-password',
+            displayName: 'User Without Password',
+            enabled: 1,
+            owner: 0,
+            role: BASIC_ROLE,
+          })
+          .set('x-actual-token', sessionToken);
+
+        expect(res.statusCode).toEqual(400);
+        expect(res.body.reason).toBe('invalid-password');
+      });
+
+      it('should create a user with a local password when provided', async () => {
+        bootstrapPassword('server-password');
+
+        const res = await request(app)
+          .post('/users')
+          .send({
+            userName: 'user-with-password',
+            displayName: 'User With Password',
+            enabled: 1,
+            owner: 0,
+            role: BASIC_ROLE,
+            password: 'user-password',
+          })
+          .set('x-actual-token', sessionToken);
+
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.status).toBe('ok');
+
+        createdUserId = res.body.data.id;
+        const passwordRow = getAccountDb().first(
+          'SELECT password_hash FROM user_passwords WHERE user_id = ?',
+          [createdUserId],
+        );
+
+        expect(passwordRow?.password_hash).toBeTruthy();
+      });
     });
 
     describe('PATCH /users', () => {
@@ -164,6 +217,7 @@ describe('/admin', () => {
       afterEach(() => {
         deleteUser(sessionUserId);
         deleteUser(testUserId);
+        clearAuth();
       });
 
       it('should return 200 and update an existing user', async () => {
@@ -202,6 +256,30 @@ describe('/admin', () => {
         expect(res.statusCode).toEqual(400);
         expect(res.body.status).toBe('error');
         expect(res.body.reason).toBe('cannot-find-user-to-update');
+      });
+
+      it('should reset a user password when a new one is provided', async () => {
+        bootstrapPassword('server-password');
+
+        const res = await request(app)
+          .patch('/users')
+          .send({
+            id: testUserId,
+            userName: 'testUser',
+            displayName: 'Updated User',
+            enabled: true,
+            role: BASIC_ROLE,
+            password: 'new-user-password',
+          })
+          .set('x-actual-token', sessionToken);
+
+        expect(res.statusCode).toEqual(200);
+
+        const passwordRow = getAccountDb().first(
+          'SELECT password_hash FROM user_passwords WHERE user_id = ?',
+          [testUserId],
+        );
+        expect(passwordRow?.password_hash).toBeTruthy();
       });
     });
 

@@ -235,6 +235,7 @@ async function changePassword({ password }: { password: string }) {
 async function signIn(
   loginInfo:
     | {
+        userName?: string;
         password: string;
         loginMethod?: string;
       }
