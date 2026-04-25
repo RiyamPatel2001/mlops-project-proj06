@@ -46,6 +46,25 @@ def _minio_client(endpoint: str):
     )
 
 
+def load_store_dict(path: str) -> dict:
+    """Load user_store.pkl from disk or MinIO. Returns the store dict without touching globals."""
+    if path.startswith("http://") or path.startswith("https://"):
+        endpoint, bucket, obj = _parse_minio_url(path)
+        try:
+            client = _minio_client(endpoint)
+            response = client.get_object(bucket, obj)
+            store = pickle.loads(response.read())
+            response.close()
+            response.release_conn()
+            return store
+        except Exception:
+            return {}
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return pickle.load(f)
+    return {}
+
+
 def load_store(path: str) -> dict:
     """Load user_store.pkl from disk or MinIO into memory. Returns the store dict."""
     global _store, _store_path, _minio_url
@@ -53,22 +72,10 @@ def load_store(path: str) -> dict:
         _minio_url = path
         endpoint, bucket, obj = _parse_minio_url(path)
         _store_path = f"/tmp/{obj.replace('/', '_')}"
-        try:
-            client = _minio_client(endpoint)
-            response = client.get_object(bucket, obj)
-            _store = pickle.loads(response.read())
-            response.close()
-            response.release_conn()
-        except Exception:
-            _store = {}
-        return _store
-    _minio_url = ""
-    _store_path = path
-    if os.path.exists(path):
-        with open(path, "rb") as f:
-            _store = pickle.load(f)
     else:
-        _store = {}
+        _minio_url = ""
+        _store_path = path
+    _store = load_store_dict(path)
     return _store
 
 

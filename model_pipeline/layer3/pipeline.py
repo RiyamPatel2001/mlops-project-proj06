@@ -1,6 +1,5 @@
 import logging
 import os
-import pickle
 
 import mlflow
 import psycopg2
@@ -8,6 +7,7 @@ import yaml
 
 from .cluster import cluster_user
 from .namer import name_cluster
+from model_pipeline.layer2.user_store import load_store_dict
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -23,12 +23,10 @@ def run_pipeline(config: dict) -> None:
     min_samples: int = config["layer3"]["min_samples"]
     tracking_uri: str = config["mlflow"]["tracking_uri"].strip()
 
-    if not os.path.exists(store_path):
+    store: dict = load_store_dict(store_path)
+    if not store:
         logger.warning("user_store.pkl not found at %s — nothing to process", store_path)
         return
-
-    with open(store_path, "rb") as f:
-        store: dict = pickle.load(f)
 
     dsn = os.environ.get("POSTGRES_DSN", config.get("postgres", {}).get("dsn", ""))
     if not dsn:

@@ -16,7 +16,6 @@ Usage (from project root):
 
 import logging
 import os
-import pickle
 import sys
 import tempfile
 from collections import Counter
@@ -37,6 +36,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from model_pipeline.layer3.cluster import cluster_user
 from model_pipeline.layer3.namer import name_cluster
+from model_pipeline.layer2.user_store import load_store_dict
 
 _CONFIG_PATH = os.path.join(_SCRIPT_DIR, "..", "layer2", "config.yaml")
 
@@ -124,12 +124,10 @@ def run_evaluation(config: dict, purity_threshold: float = 0.8) -> None:
     min_samples  = int(config["layer3"]["min_samples"])
     tracking_uri = config["mlflow"]["tracking_uri"].strip()
 
-    if not os.path.exists(store_path):
+    store: dict = load_store_dict(store_path)
+    if not store:
         logger.warning("user_store.pkl not found at %s — exiting", store_path)
         return
-
-    with open(store_path, "rb") as f:
-        store: dict = pickle.load(f)
 
     logger.info("Loaded store: %d users", len(store))
 
