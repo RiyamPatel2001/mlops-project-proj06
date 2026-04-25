@@ -108,7 +108,7 @@ _LAYER3_SUGGESTIONS_DDL = """
 CREATE TABLE IF NOT EXISTS layer3_suggestions (
     id                      SERIAL PRIMARY KEY,
     user_id                 TEXT NOT NULL,
-    cluster_id              TEXT NOT NULL,
+    cluster_id              NULL,
     suggested_category_name TEXT NOT NULL,
     payee_list              TEXT[] NOT NULL,
     status                  TEXT NOT NULL DEFAULT 'pending'
