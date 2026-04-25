@@ -98,12 +98,12 @@ layer2:
   k: 5
   similarity_threshold: 0.85
   min_history: 10
-  store_path: "/app/artifacts/user_store.pkl"  # PVC mounted at /app/artifacts
+  store_path: "http://129.114.25.143:30900/data/user_store/user_store.pkl"  # MinIO object
 
 layer3:
   eps: 0.15
   min_samples: 3
-  store_path: "/app/artifacts/user_store.pkl"
+  store_path: "http://129.114.25.143:30900/data/user_store/user_store.pkl"  # MinIO object
 
 postgres:
   dsn: "postgresql://mlops_user:mlops_pass@postgres.mlops.svc.cluster.local:5432/mlops"
@@ -172,23 +172,22 @@ python -m model_pipeline.layer3.pipeline
 python -m model_pipeline.layer3.evaluate
 ```
 
-### 5. user_store.pkl is on a PVC, not local disk
+### 5. user_store.pkl is in MinIO, not a local PVC mount
 
-`/app/artifacts` is backed by `artifacts-pvc` in k8s, shared between the serving pods and Layer 3. For local Docker evaluation runs, you need to either pull the pkl from the PVC or build it fresh.
+`user_store.pkl` lives at `data/user_store/user_store.pkl` in MinIO (bucket `data`). Docker containers access it via the NodePort (`--network host` + `MINIO_ENDPOINT_URL`). No local volume mount is needed.
 
-**Pull from PVC:**
+**Pull locally for inspection:**
 
 ```bash
-kubectl cp -n mlops <serving-pod-name>:/app/artifacts/user_store.pkl \
-    ./artifacts/user_store.pkl
+mc alias set myminio http://129.114.25.143:30900 minioadmin minioadmin123
+mc cp myminio/data/user_store/user_store.pkl ./artifacts/user_store.pkl
 ```
 
-**Build fresh locally** (then push back if needed):
+**Build fresh and upload:**
 
 ```bash
 docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
   -v "$(pwd)/training/models/layer1/artifacts/fasttext.bin:/app/training/models/layer1/artifacts/fasttext.bin" \
   -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
   -e MINIO_ACCESS_KEY=minioadmin \
@@ -212,7 +211,6 @@ Evaluates the full Layer 1+2 pipeline on `eval_cex.csv` (2024 CEX, in-distributi
 ```bash
 docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
   -v "$(pwd)/training/models/layer1/artifacts/fasttext.bin:/app/training/models/layer1/artifacts/fasttext.bin" \
   -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
   -e MINIO_ACCESS_KEY=minioadmin \
@@ -226,7 +224,6 @@ docker run --rm --network host \
 ```bash
 docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
   -v "$(pwd)/training/models/layer1/artifacts/fasttext.bin:/app/training/models/layer1/artifacts/fasttext.bin" \
   -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
   -e MINIO_ACCESS_KEY=minioadmin \
@@ -270,7 +267,9 @@ Measures DBSCAN cluster quality and LLM naming accuracy against ground-truth lab
 ```bash
 docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
   -e ANTHROPIC_API_KEY=<your-key> \
   actualbudget-evaluate \
   python -m model_pipeline.layer3.evaluate
@@ -291,7 +290,9 @@ Clusters all users in the store, names each cluster via the Anthropic API, and i
 ```bash
 docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
   -e ANTHROPIC_API_KEY=<your-key> \
   -e POSTGRES_DSN="postgresql://mlops_user:mlops_pass@10.43.98.71:5432/mlops" \
   actualbudget-evaluate \

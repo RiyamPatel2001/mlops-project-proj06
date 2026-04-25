@@ -15,19 +15,54 @@ Store structure:
 All embeddings must be unit-normalized before being passed to add_transaction.
 """
 
+import io
 import os
 import pickle
+from urllib.parse import urlparse
 import numpy as np
 from typing import Optional
 
 
 _store: dict = {}
 _store_path: str = ""
+_minio_url: str = ""
+
+
+def _parse_minio_url(url: str):
+    p = urlparse(url)
+    endpoint = f"{p.scheme}://{p.netloc}"
+    bucket, obj = p.path.lstrip("/").split("/", 1)
+    return endpoint, bucket, obj
+
+
+def _minio_client(endpoint: str):
+    from minio import Minio
+    ep = endpoint.replace("http://", "").replace("https://", "")
+    return Minio(
+        ep,
+        access_key=os.environ.get("MINIO_ACCESS_KEY", "minioadmin"),
+        secret_key=os.environ.get("MINIO_SECRET_KEY", "minioadmin"),
+        secure=endpoint.startswith("https://"),
+    )
 
 
 def load_store(path: str) -> dict:
-    """Load user_store.pkl from disk into memory. Returns the store dict."""
-    global _store, _store_path
+    """Load user_store.pkl from disk or MinIO into memory. Returns the store dict."""
+    global _store, _store_path, _minio_url
+    if path.startswith("http://") or path.startswith("https://"):
+        _minio_url = path
+        endpoint, bucket, obj = _parse_minio_url(path)
+        _store_path = f"/tmp/{obj.replace('/', '_')}"
+        try:
+            client = _minio_client(endpoint)
+            response = client.get_object(bucket, obj)
+            _store = pickle.loads(response.read())
+            response.close()
+            response.release_conn()
+        except Exception:
+            _store = {}
+        return _store
+    _minio_url = ""
     _store_path = path
     if os.path.exists(path):
         with open(path, "rb") as f:
@@ -38,13 +73,17 @@ def load_store(path: str) -> dict:
 
 
 def _save_store() -> None:
-    """Persist current in-memory store to disk."""
+    """Persist current in-memory store to local file and upload to MinIO if applicable."""
     if not _store_path:
         raise RuntimeError("Store path not set. Call load_store() first.")
+    data = pickle.dumps(_store)
     tmp_path = _store_path + ".tmp"
     with open(tmp_path, "wb") as f:
-        pickle.dump(_store, f)
-    os.replace(tmp_path, _store_path)  # atomic rename
+        f.write(data)
+    os.replace(tmp_path, _store_path)
+    if _minio_url:
+        endpoint, bucket, obj = _parse_minio_url(_minio_url)
+        _minio_client(endpoint).put_object(bucket, obj, io.BytesIO(data), len(data))
 
 
 def get_user_store(user_id: str) -> Optional[dict]:

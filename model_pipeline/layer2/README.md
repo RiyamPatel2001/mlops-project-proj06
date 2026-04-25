@@ -94,7 +94,6 @@ docker build -f model_pipeline/layer2/Dockerfile -t actualbudget-evaluate .
 
 docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
   -v "$(pwd)/training/models/layer1/artifacts/fasttext.bin:/app/training/models/layer1/artifacts/fasttext.bin" \
   -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
   -e MINIO_ACCESS_KEY=minioadmin \
@@ -103,7 +102,7 @@ docker run --rm --network host \
   python -m model_pipeline.layer2.build_store
 ```
 
-> `--network host` is required when running outside the k8s cluster so the container can reach the MinIO NodePort. `MINIO_ENDPOINT_URL` overrides the internal cluster DNS in `config.yaml`. The fasttext.bin mount is needed if the MLflow artifact backend does not have the model file — mount the locally trained artifact directly.
+> `--network host` is required when running outside the k8s cluster so the container can reach the MinIO NodePort. `MINIO_ENDPOINT_URL` overrides the internal cluster DNS in `config.yaml`. MinIO credentials are used for both reading the training CSV and writing `user_store.pkl` to MinIO. The fasttext.bin mount is needed if the MLflow artifact backend does not have the model file — mount the locally trained artifact directly.
 
 ### Evaluate
 
@@ -122,7 +121,6 @@ Uses `train.csv` (2022 CEX) to build the per-user store, then evaluates the full
 ```bash
 docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
   -v "$(pwd)/training/models/layer1/artifacts/fasttext.bin:/app/training/models/layer1/artifacts/fasttext.bin" \
   -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
   -e MINIO_ACCESS_KEY=minioadmin \
@@ -136,7 +134,6 @@ docker run --rm --network host \
 ```bash
 docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
   -v "$(pwd)/training/models/layer1/artifacts/fasttext.bin:/app/training/models/layer1/artifacts/fasttext.bin" \
   -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
   -e MINIO_ACCESS_KEY=minioadmin \
@@ -192,7 +189,9 @@ Logs to MLflow under experiment `layer3-evaluation`. Writes a per-user results C
 ```bash
 docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
   -e ANTHROPIC_API_KEY=<your-key> \
   actualbudget-evaluate \
   python -m model_pipeline.layer3.evaluate
@@ -215,9 +214,11 @@ docker build -f model_pipeline/layer2/Dockerfile -t actualbudget-evaluate .
 ```bash
 docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
+  -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin123 \
   -e ANTHROPIC_API_KEY=<your-key> \
-  -e POSTGRES_DSN="postgresql://mlops_user:mlops_pass@129.114.25.143:<pg-nodeport>/mlops" \
+  -e POSTGRES_DSN="postgresql://mlops_user:mlops_pass@10.43.98.71:5432/mlops" \
   actualbudget-evaluate \
   python -m model_pipeline.layer3.pipeline
 ```
@@ -252,7 +253,7 @@ layer2:
   k: 5                        # number of nearest neighbors
   similarity_threshold: 0.85  # min cosine similarity to trust Layer 2
   min_history: 10             # min stored transactions before Layer 2 activates
-  store_path: /app/artifacts/user_store.pkl   # PVC mounted at /app/artifacts
+  store_path: http://129.114.25.143:30900/data/user_store/user_store.pkl   # MinIO object
 
 postgres:
   dsn: "postgresql://mlops_user:mlops_pass@postgres.mlops.svc.cluster.local:5432/mlops"

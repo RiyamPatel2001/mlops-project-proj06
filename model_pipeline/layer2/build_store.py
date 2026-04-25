@@ -23,6 +23,7 @@ import yaml
 import numpy as np
 import pandas as pd
 from minio import Minio
+from urllib.parse import urlparse
 
 from model_pipeline.layer2.embedder import Embedder
 
@@ -107,7 +108,6 @@ def main():
     l2 = cfg["layer2"]
 
     output_path = l2["store_path"]
-    os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
 
     print(f"Loading data from {cfg['minio']['endpoint']}/{cfg['minio']['bucket']}/{cfg['minio']['object']} ...")
     df = load_csv(cfg)
@@ -124,8 +124,15 @@ def main():
     store = build_store(df, embedder)
     print(f"Built store for {len(store)} users.")
 
-    with open(output_path, "wb") as f:
-        pickle.dump(store, f)
+    data = pickle.dumps(store)
+    if output_path.startswith("http://") or output_path.startswith("https://"):
+        p = urlparse(output_path)
+        bucket, obj = p.path.lstrip("/").split("/", 1)
+        make_minio_client(cfg).put_object(bucket, obj, io.BytesIO(data), len(data))
+    else:
+        os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+        with open(output_path, "wb") as f:
+            f.write(data)
     print(f"Saved store to {output_path}")
 
 
