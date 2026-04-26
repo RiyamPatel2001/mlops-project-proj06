@@ -1,8 +1,6 @@
 import express from 'express';
-import { v4 as uuidv4 } from 'uuid';
 
-import { changePassword } from './accounts/password';
-import { getActiveLoginMethod, isAdmin } from './account-db';
+import { isAdmin } from './account-db';
 import * as UserService from './services/user-service';
 import {
   errorMiddleware,
@@ -18,191 +16,31 @@ app.use(requestLoggerMiddleware);
 
 export { app as handlers };
 
+function sendDisabledUserManagement(res) {
+  res.status(404).send({
+    status: 'error',
+    reason: 'user-management-disabled',
+  });
+}
+
 app.get('/owner-created/', (req, res) => {
-  try {
-    const ownerCount = UserService.getOwnerCount();
-    res.json(ownerCount > 0);
-  } catch {
-    res.status(500).json({ error: 'Failed to retrieve owner count' });
-  }
+  sendDisabledUserManagement(res);
 });
 
 app.get('/users/', validateSessionMiddleware, (req, res) => {
-  const users = UserService.getAllUsers();
-  res.json(
-    users.map(u => ({
-      ...u,
-      owner: u.owner === 1,
-      enabled: u.enabled === 1,
-    })),
-  );
+  sendDisabledUserManagement(res);
 });
 
 app.post('/users', validateSessionMiddleware, async (req, res) => {
-  if (!isAdmin(res.locals.user_id)) {
-    res.status(403).send({
-      status: 'error',
-      reason: 'forbidden',
-      details: 'permission-not-found',
-    });
-    return;
-  }
-
-  const { userName, role, displayName, enabled, password } = req.body || {};
-
-  if (!userName || !role) {
-    res.status(400).send({
-      status: 'error',
-      reason: `${!userName ? 'user-cant-be-empty' : 'role-cant-be-empty'}`,
-      details: `${!userName ? 'Username' : 'Role'} cannot be empty`,
-    });
-    return;
-  }
-
-  const roleIdFromDb = UserService.validateRole(role);
-  if (!roleIdFromDb) {
-    res.status(400).send({
-      status: 'error',
-      reason: 'role-does-not-exists',
-      details: 'Selected role does not exist',
-    });
-    return;
-  }
-
-  const userIdInDb = UserService.getUserByUsername(userName);
-  if (userIdInDb) {
-    res.status(400).send({
-      status: 'error',
-      reason: 'user-already-exists',
-      details: `User ${userName} already exists`,
-    });
-    return;
-  }
-
-  if (getActiveLoginMethod() === 'password' && !password) {
-    res.status(400).send({
-      status: 'error',
-      reason: 'invalid-password',
-      details: 'Password cannot be empty',
-    });
-    return;
-  }
-
-  const userId = uuidv4();
-  UserService.insertUser(
-    userId,
-    userName,
-    displayName || null,
-    enabled ? 1 : 0,
-    role,
-  );
-
-  if (password) {
-    const { error } = changePassword(password, userId);
-    if (error) {
-      UserService.deleteUser(userId);
-      res.status(400).send({ status: 'error', reason: error });
-      return;
-    }
-  }
-
-  res.status(200).send({ status: 'ok', data: { id: userId } });
+  sendDisabledUserManagement(res);
 });
 
 app.patch('/users', validateSessionMiddleware, async (req, res) => {
-  if (!isAdmin(res.locals.user_id)) {
-    res.status(403).send({
-      status: 'error',
-      reason: 'forbidden',
-      details: 'permission-not-found',
-    });
-    return;
-  }
-
-  const { id, userName, role, displayName, enabled, password } = req.body || {};
-
-  if (!userName || !role) {
-    res.status(400).send({
-      status: 'error',
-      reason: `${!userName ? 'user-cant-be-empty' : 'role-cant-be-empty'}`,
-      details: `${!userName ? 'Username' : 'Role'} cannot be empty`,
-    });
-    return;
-  }
-
-  const roleIdFromDb = UserService.validateRole(role);
-  if (!roleIdFromDb) {
-    res.status(400).send({
-      status: 'error',
-      reason: 'role-does-not-exists',
-      details: 'Selected role does not exist',
-    });
-    return;
-  }
-
-  const userIdInDb = UserService.getUserById(id);
-  if (!userIdInDb) {
-    res.status(400).send({
-      status: 'error',
-      reason: 'cannot-find-user-to-update',
-      details: `Cannot find user ${userName} to update`,
-    });
-    return;
-  }
-
-  UserService.updateUserWithRole(
-    userIdInDb,
-    userName,
-    displayName || null,
-    enabled ? 1 : 0,
-    role,
-  );
-
-  if (password) {
-    const { error } = changePassword(password, userIdInDb);
-    if (error) {
-      res.status(400).send({ status: 'error', reason: error });
-      return;
-    }
-  }
-
-  res.status(200).send({ status: 'ok', data: { id: userIdInDb } });
+  sendDisabledUserManagement(res);
 });
 
 app.delete('/users', validateSessionMiddleware, async (req, res) => {
-  if (!isAdmin(res.locals.user_id)) {
-    res.status(403).send({
-      status: 'error',
-      reason: 'forbidden',
-      details: 'permission-not-found',
-    });
-    return;
-  }
-
-  const { ids } = req.body || {};
-  let totalDeleted = 0;
-  ids.forEach(item => {
-    const ownerId = UserService.getOwnerId();
-
-    if (item === ownerId) return;
-
-    UserService.deleteUserAccess(item);
-    UserService.transferAllFilesFromUser(ownerId, item);
-    const usersDeleted = UserService.deleteUser(item);
-    totalDeleted += usersDeleted;
-  });
-
-  if (ids.length === totalDeleted) {
-    res
-      .status(200)
-      .send({ status: 'ok', data: { someDeletionsFailed: false } });
-  } else {
-    res.status(400).send({
-      status: 'error',
-      reason: 'not-all-deleted',
-      details: '',
-    });
-  }
+  sendDisabledUserManagement(res);
 });
 
 app.get('/access', validateSessionMiddleware, (req, res) => {

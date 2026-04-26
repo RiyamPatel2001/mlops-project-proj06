@@ -4,17 +4,16 @@ import { v4 as uuidv4 } from 'uuid';
 import { clearExpiredSessions, getAccountDb } from '#account-db';
 import { config } from '#load-config';
 import {
+  getNamedUserCount,
+  getUserByUsername,
   getUserForPasswordLogin,
+  insertUser,
   setUserPasswordHash,
 } from '#services/user-service';
 import { TOKEN_EXPIRATION_NEVER } from '#util/validate-user';
 
 function isValidPassword(password) {
   return password != null && password !== '';
-}
-
-function hashPassword(password) {
-  return bcrypt.hashSync(password, 12);
 }
 
 function normalizeUserName(userName) {
@@ -24,6 +23,19 @@ function normalizeUserName(userName) {
 
   const trimmed = userName.trim();
   return trimmed === '' ? null : trimmed;
+}
+
+function normalizeDisplayName(displayName) {
+  if (typeof displayName !== 'string') {
+    return null;
+  }
+
+  const trimmed = displayName.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+function hashPassword(password) {
+  return bcrypt.hashSync(password, 12);
 }
 
 function getTokenExpiration() {
@@ -64,134 +76,105 @@ function upsertPasswordSession(userId) {
   return token;
 }
 
-function getLegacyPasswordUserId() {
+export function ensurePasswordAuthInitialized() {
   const accountDb = getAccountDb();
-  const { totalOfUsers } = accountDb.first(
-    'SELECT count(*) as totalOfUsers FROM users',
+  const existingPasswordAuth = accountDb.first(
+    'SELECT method FROM auth WHERE method = ?',
+    ['password'],
   );
 
-  if (totalOfUsers === 0) {
-    const userId = uuidv4();
-    accountDb.mutate(
-      'INSERT INTO users (id, user_name, display_name, enabled, owner, role) VALUES (?, ?, ?, 1, 1, ?)',
-      [userId, '', '', 'ADMIN'],
-    );
-    return userId;
+  if (existingPasswordAuth) {
+    accountDb.transaction(() => {
+      accountDb.mutate('UPDATE auth SET active = 0');
+      accountDb.mutate(
+        "UPDATE auth SET display_name = 'Password', extra_data = NULL, active = 1 WHERE method = 'password'",
+      );
+      accountDb.mutate("DELETE FROM auth WHERE method <> 'password'");
+    });
+    return;
   }
 
-  const { id: userId } = accountDb.first(
-    'SELECT id FROM users WHERE user_name = ?',
-    [''],
-  ) || { id: null };
-
-  return userId;
+  accountDb.transaction(() => {
+    accountDb.mutate('DELETE FROM auth');
+    accountDb.mutate(
+      "INSERT INTO auth (method, display_name, extra_data, active) VALUES ('password', 'Password', NULL, 1)",
+    );
+  });
 }
 
-export function bootstrapPassword(password) {
+export function registerPasswordUser({
+  userName,
+  password,
+  displayName = null,
+  owner = false,
+} = {}) {
+  const normalizedUserName = normalizeUserName(userName);
+  if (!normalizedUserName) {
+    return { error: 'invalid-username' };
+  }
+
   if (!isValidPassword(password)) {
     return { error: 'invalid-password' };
   }
 
-  const hashed = hashPassword(password);
-  const accountDb = getAccountDb();
-  accountDb.transaction(() => {
-    accountDb.mutate('DELETE FROM auth WHERE method = ?', ['password']);
-    accountDb.mutate('UPDATE auth SET active = 0');
-    accountDb.mutate(
-      "INSERT INTO auth (method, display_name, extra_data, active) VALUES ('password', 'Password', ?, 1)",
-      [hashed],
-    );
-  });
+  ensurePasswordAuthInitialized();
 
-  return {};
+  if (getUserByUsername(normalizedUserName)) {
+    return { error: 'user-already-exists' };
+  }
+
+  const userId = uuidv4();
+  insertUser(
+    userId,
+    normalizedUserName,
+    normalizeDisplayName(displayName),
+    1,
+    owner ? 'ADMIN' : 'BASIC',
+    owner ? 1 : 0,
+  );
+  setUserPasswordHash(userId, hashPassword(password));
+
+  const token = upsertPasswordSession(userId);
+  return { token, userId };
 }
 
-export function loginWithPassword(password, userName = null) {
+export function canRegisterFirstUser() {
+  return getNamedUserCount() === 0;
+}
+
+export function loginWithPassword(password, userName) {
   if (!isValidPassword(password)) {
     return { error: 'invalid-password' };
   }
 
   const normalizedUserName = normalizeUserName(userName);
-  if (normalizedUserName) {
-    const user = getUserForPasswordLogin(normalizedUserName);
-    if (!user?.passwordHash || user.enabled !== 1) {
-      return { error: 'invalid-password' };
-    }
-
-    const confirmed = bcrypt.compareSync(password, user.passwordHash);
-    if (!confirmed) {
-      return { error: 'invalid-password' };
-    }
-
-    const token = upsertPasswordSession(user.id);
-    return { token };
+  if (!normalizedUserName) {
+    return { error: 'invalid-username' };
   }
 
-  const accountDb = getAccountDb();
-  const { extra_data: passwordHash } =
-    accountDb.first('SELECT extra_data FROM auth WHERE method = ?', [
-      'password',
-    ]) || {};
-
-  if (!passwordHash) {
+  const user = getUserForPasswordLogin(normalizedUserName);
+  if (!user?.passwordHash || user.enabled !== 1) {
     return { error: 'invalid-password' };
   }
 
-  const confirmed = bcrypt.compareSync(password, passwordHash);
-
+  const confirmed = bcrypt.compareSync(password, user.passwordHash);
   if (!confirmed) {
     return { error: 'invalid-password' };
   }
 
-  const userId = getLegacyPasswordUserId();
-  if (!userId) {
-    return { error: 'user-not-found' };
-  }
-
-  const token = upsertPasswordSession(userId);
+  const token = upsertPasswordSession(user.id);
   return { token };
 }
 
-export function changePassword(newPassword, userId = null) {
+export function changePassword(newPassword, userId) {
   if (!isValidPassword(newPassword)) {
     return { error: 'invalid-password' };
   }
 
-  const hashed = hashPassword(newPassword);
-
-  if (userId) {
-    setUserPasswordHash(userId, hashed);
-    return {};
+  if (!userId) {
+    return { error: 'user-not-found' };
   }
 
-  const accountDb = getAccountDb();
-  accountDb.mutate(
-    "UPDATE auth SET extra_data = ? WHERE method = 'password'",
-    [hashed],
-  );
+  setUserPasswordHash(userId, hashPassword(newPassword));
   return {};
-}
-
-export function checkPassword(password) {
-  if (!isValidPassword(password)) {
-    return false;
-  }
-
-  const accountDb = getAccountDb();
-  const { extra_data: passwordHash } =
-    accountDb.first('SELECT extra_data FROM auth WHERE method = ?', [
-      'password',
-    ]) || {};
-
-  if (!passwordHash) {
-    return false;
-  }
-
-  const confirmed = bcrypt.compareSync(password, passwordHash);
-
-  if (!confirmed) {
-    return false;
-  }
-
-  return true;
 }

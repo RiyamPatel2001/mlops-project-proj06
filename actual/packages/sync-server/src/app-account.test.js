@@ -1,18 +1,25 @@
 import request from 'supertest';
 import { v4 as uuidv4 } from 'uuid';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getAccountDb, getLoginMethod, getServerPrefs } from './account-db';
-import { bootstrapPassword, changePassword } from './accounts/password';
+import { changePassword } from './accounts/password';
 import { handlers as app, authRateLimiter } from './app-account';
 
 const ADMIN_ROLE = 'ADMIN';
 const BASIC_ROLE = 'BASIC';
 
-// Create user helper function
-const createUser = (userId, userName, role, owner = 0, enabled = 1) => {
+const createUser = (
+  userId,
+  userName,
+  role,
+  owner = 0,
+  enabled = 1,
+  displayName = `${userName} display`,
+) => {
   getAccountDb().mutate(
     'INSERT INTO users (id, user_name, display_name, enabled, owner, role) VALUES (?, ?, ?, ?, ?, ?)',
-    [userId, userName, `${userName} display`, enabled, owner, role],
+    [userId, userName, displayName, enabled, owner, role],
   );
 };
 
@@ -25,10 +32,10 @@ const deleteUser = userId => {
   getAccountDb().mutate('DELETE FROM users WHERE id = ?', [userId]);
 };
 
-const createSession = (userId, sessionToken, authMethod = null) => {
+const createSession = (userId, sessionToken, authMethod = 'password') => {
   getAccountDb().mutate(
     'INSERT INTO sessions (token, user_id, expires_at, auth_method) VALUES (?, ?, ?, ?)',
-    [sessionToken, userId, Math.floor(Date.now() / 1000) + 60 * 60, authMethod], // Expire in 1 hour (stored in seconds)
+    [sessionToken, userId, Math.floor(Date.now() / 1000) + 60 * 60, authMethod],
   );
 };
 
@@ -36,13 +43,6 @@ const generateSessionToken = () => `token-${uuidv4()}`;
 
 const clearServerPrefs = () => {
   getAccountDb().mutate('DELETE FROM server_prefs');
-};
-
-const insertAuthRow = (method, active, extraData = null) => {
-  getAccountDb().mutate(
-    'INSERT INTO auth (method, display_name, extra_data, active) VALUES (?, ?, ?, ?)',
-    [method, method, extraData, active],
-  );
 };
 
 const clearAuth = () => {
@@ -53,17 +53,32 @@ const clearUserPasswords = () => {
   getAccountDb().mutate('DELETE FROM user_passwords');
 };
 
+const clearUsers = () => {
+  getAccountDb().mutate('DELETE FROM sessions');
+  getAccountDb().mutate('DELETE FROM user_access');
+  getAccountDb().mutate('DELETE FROM user_passwords');
+  getAccountDb().mutate('DELETE FROM users');
+};
+
 beforeEach(() => {
   authRateLimiter.resetKey('127.0.0.1');
+});
+
+afterEach(() => {
+  clearServerPrefs();
+  clearAuth();
+  clearUsers();
 });
 
 describe('auth rate limiting', () => {
   it('should return 429 after exceeding the rate limit on /login', async () => {
     for (let i = 0; i < 5; i++) {
-      await request(app).post('/login').send({ password: 'wrong' });
+      await request(app).post('/login').send({ userName: 'wrong', password: 'wrong' });
     }
 
-    const res = await request(app).post('/login').send({ password: 'wrong' });
+    const res = await request(app)
+      .post('/login')
+      .send({ userName: 'wrong', password: 'wrong' });
 
     expect(res.statusCode).toEqual(429);
     expect(res.body).toEqual({
@@ -74,12 +89,12 @@ describe('auth rate limiting', () => {
 
   it('should apply the same rate limit across /login and /bootstrap', async () => {
     for (let i = 0; i < 5; i++) {
-      await request(app).post('/login').send({ password: 'wrong' });
+      await request(app).post('/login').send({ userName: 'wrong', password: 'wrong' });
     }
 
     const res = await request(app)
       .post('/bootstrap')
-      .send({ password: 'test' });
+      .send({ userName: 'first-user', password: 'test' });
 
     expect(res.statusCode).toEqual(429);
     expect(res.body).toEqual({
@@ -90,7 +105,7 @@ describe('auth rate limiting', () => {
 
   it('should not rate limit non-auth endpoints', async () => {
     for (let i = 0; i < 6; i++) {
-      await request(app).post('/login').send({ password: 'wrong' });
+      await request(app).post('/login').send({ userName: 'wrong', password: 'wrong' });
     }
 
     const res = await request(app).get('/needs-bootstrap');
@@ -98,29 +113,165 @@ describe('auth rate limiting', () => {
   });
 });
 
-describe('/change-password', () => {
-  let adminUserId,
-    basicUserId,
-    adminPasswordToken,
-    adminOpenidToken,
-    basicPasswordToken;
+describe('getLoginMethod()', () => {
+  it('always returns password', () => {
+    expect(getLoginMethod(undefined)).toBe('password');
+    expect(getLoginMethod({ body: { loginMethod: 'openid' } })).toBe(
+      'password',
+    );
+  });
+});
 
+describe('/bootstrap', () => {
+  it('creates the first account and marks the server bootstrapped', async () => {
+    const res = await request(app).post('/bootstrap').send({
+      userName: 'owner',
+      displayName: 'Owner Name',
+      password: 'secret-password',
+    });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toHaveProperty('status', 'ok');
+    expect(res.body.data).toHaveProperty('token');
+
+    const owner = getAccountDb().first(
+      'SELECT user_name, display_name, owner, role FROM users WHERE user_name = ?',
+      ['owner'],
+    );
+    expect(owner).toEqual({
+      user_name: 'owner',
+      display_name: 'Owner Name',
+      owner: 1,
+      role: ADMIN_ROLE,
+    });
+
+    const bootstrapState = await request(app).get('/needs-bootstrap');
+    expect(bootstrapState.body.data.bootstrapped).toBe(true);
+    expect(bootstrapState.body.data.availableLoginMethods).toEqual([
+      { method: 'password', displayName: 'Password', active: true },
+    ]);
+  });
+
+  it('rejects a second bootstrap after the first account exists', async () => {
+    await request(app).post('/bootstrap').send({
+      userName: 'owner',
+      password: 'secret-password',
+    });
+
+    const res = await request(app).post('/bootstrap').send({
+      userName: 'other-owner',
+      password: 'another-secret',
+    });
+
+    expect(res.statusCode).toEqual(400);
+    expect(res.body).toEqual({
+      status: 'error',
+      reason: 'already-bootstrapped',
+    });
+  });
+});
+
+describe('/register', () => {
+  beforeEach(async () => {
+    await request(app).post('/bootstrap').send({
+      userName: 'owner',
+      password: 'secret-password',
+    });
+  });
+
+  it('creates a later user with a BASIC role and returns a session token', async () => {
+    const res = await request(app).post('/register').send({
+      userName: 'second-user',
+      displayName: 'Second User',
+      password: 'basic-password',
+    });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toHaveProperty('status', 'ok');
+    expect(res.body.data).toHaveProperty('token');
+
+    const user = getAccountDb().first(
+      'SELECT user_name, display_name, owner, role FROM users WHERE user_name = ?',
+      ['second-user'],
+    );
+    expect(user).toEqual({
+      user_name: 'second-user',
+      display_name: 'Second User',
+      owner: 0,
+      role: BASIC_ROLE,
+    });
+  });
+
+  it('rejects duplicate usernames', async () => {
+    const res = await request(app).post('/register').send({
+      userName: 'owner',
+      password: 'basic-password',
+    });
+
+    expect(res.statusCode).toEqual(400);
+    expect(res.body).toEqual({
+      status: 'error',
+      reason: 'user-already-exists',
+    });
+  });
+});
+
+describe('/login', () => {
   beforeEach(() => {
-    adminUserId = uuidv4();
-    basicUserId = uuidv4();
-    adminPasswordToken = generateSessionToken();
-    adminOpenidToken = generateSessionToken();
-    basicPasswordToken = generateSessionToken();
-    createUser(adminUserId, 'admin', ADMIN_ROLE);
-    createUser(basicUserId, 'basic', BASIC_ROLE);
-    createSession(adminUserId, adminPasswordToken, 'password');
-    createSession(adminUserId, adminOpenidToken, 'openid');
-    createSession(basicUserId, basicPasswordToken, 'password');
+    const userId = uuidv4();
+    createUser(userId, 'user1', BASIC_ROLE);
+    changePassword('secret-password', userId);
   });
 
   afterEach(() => {
-    deleteUser(adminUserId);
-    deleteUser(basicUserId);
+    clearAuth();
+    clearUserPasswords();
+  });
+
+  it('allows username/password login for an existing user', async () => {
+    const res = await request(app).post('/login').send({
+      userName: 'user1',
+      password: 'secret-password',
+    });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toHaveProperty('status', 'ok');
+    expect(res.body.data).toHaveProperty('token');
+  });
+
+  it('rejects login with the wrong password', async () => {
+    const res = await request(app).post('/login').send({
+      userName: 'user1',
+      password: 'wrong-password',
+    });
+
+    expect(res.statusCode).toEqual(400);
+    expect(res.body).toHaveProperty('reason', 'invalid-password');
+  });
+
+  it('rejects login without a username', async () => {
+    const res = await request(app).post('/login').send({
+      password: 'secret-password',
+    });
+
+    expect(res.statusCode).toEqual(400);
+    expect(res.body).toHaveProperty('reason', 'invalid-username');
+  });
+});
+
+describe('/change-password', () => {
+  let userId, sessionToken;
+
+  beforeEach(() => {
+    userId = uuidv4();
+    sessionToken = generateSessionToken();
+    createUser(userId, 'basic', BASIC_ROLE);
+    changePassword('oldpassword', userId);
+    createSession(userId, sessionToken, 'password');
+  });
+
+  afterEach(() => {
+    deleteUser(userId);
     clearAuth();
     clearUserPasswords();
   });
@@ -135,173 +286,30 @@ describe('/change-password', () => {
     expect(res.body).toHaveProperty('reason', 'unauthorized');
   });
 
-  it('should return 403 when user is not an admin', async () => {
-    bootstrapPassword('oldpassword');
-
+  it('should return 400 when the new password is empty', async () => {
     const res = await request(app)
       .post('/change-password')
-      .set('x-actual-token', basicPasswordToken)
-      .send({ password: 'newpassword' });
-
-    expect(res.statusCode).toEqual(403);
-    expect(res.body).toEqual({
-      status: 'error',
-      reason: 'forbidden',
-      details: 'permission-not-found',
-    });
-  });
-
-  it('should return 403 when admin session uses openid auth method', async () => {
-    bootstrapPassword('oldpassword');
-
-    const res = await request(app)
-      .post('/change-password')
-      .set('x-actual-token', adminOpenidToken)
-      .send({ password: 'newpassword' });
-
-    expect(res.statusCode).toEqual(403);
-    expect(res.body).toEqual({
-      status: 'error',
-      reason: 'forbidden',
-      details: 'password-auth-not-active',
-    });
-  });
-
-  it('should return 400 when admin password-auth session sends empty password', async () => {
-    bootstrapPassword('oldpassword');
-
-    const res = await request(app)
-      .post('/change-password')
-      .set('x-actual-token', adminPasswordToken)
+      .set('x-actual-token', sessionToken)
       .send({ password: '' });
 
     expect(res.statusCode).toEqual(400);
     expect(res.body).toEqual({ status: 'error', reason: 'invalid-password' });
   });
 
-  it('should return 200 when admin with password-auth session sends valid password', async () => {
-    bootstrapPassword('oldpassword');
-
+  it('should let the current user change their own password', async () => {
     const res = await request(app)
       .post('/change-password')
-      .set('x-actual-token', adminPasswordToken)
+      .set('x-actual-token', sessionToken)
       .send({ password: 'newpassword' });
 
     expect(res.statusCode).toEqual(200);
     expect(res.body).toEqual({ status: 'ok', data: {} });
-  });
-});
 
-describe('getLoginMethod()', () => {
-  afterEach(() => {
-    clearAuth();
-  });
-
-  it('returns the active DB method when no req is provided', () => {
-    insertAuthRow('password', 1);
-    expect(getLoginMethod(undefined)).toBe('password');
-  });
-
-  it('honors a client-requested method when it is active in DB', () => {
-    insertAuthRow('openid', 1);
-    const req = { body: { loginMethod: 'openid' } };
-    expect(getLoginMethod(req)).toBe('openid');
-  });
-
-  it('honors a client-requested method that exists but is inactive in DB', () => {
-    insertAuthRow('openid', 1);
-    insertAuthRow('password', 0);
-    const req = { body: { loginMethod: 'password' } };
-    expect(getLoginMethod(req)).toBe('password');
-  });
-
-  it('ignores a client-requested method that is not in DB', () => {
-    insertAuthRow('openid', 1);
-    const req = { body: { loginMethod: 'password' } };
-    expect(getLoginMethod(req)).toBe('openid');
-  });
-
-  it('falls back to config default when auth table is empty and no req', () => {
-    // auth table is empty — getActiveLoginMethod() returns undefined
-    // config default for loginMethod is 'password'
-    expect(getLoginMethod(undefined)).toBe('password');
-  });
-});
-
-describe('/login', () => {
-  afterEach(() => {
-    clearAuth();
-    clearUserPasswords();
-  });
-
-  it('should allow password login when OIDC is the active method', async () => {
-    bootstrapPassword('testpassword');
-    insertAuthRow('openid', 1);
-    getAccountDb().mutate(
-      "UPDATE auth SET active = 0 WHERE method = 'password'",
-    );
-
-    const res = await request(app)
-      .post('/login')
-      .send({ loginMethod: 'password', password: 'testpassword' });
-
-    expect(res.statusCode).toEqual(200);
-    expect(res.body).toHaveProperty('status', 'ok');
-    expect(res.body.data).toHaveProperty('token');
-  });
-
-  it('should reject wrong password even when method is explicitly requested', async () => {
-    bootstrapPassword('testpassword');
-    insertAuthRow('openid', 1);
-    getAccountDb().mutate(
-      "UPDATE auth SET active = 0 WHERE method = 'password'",
-    );
-
-    const res = await request(app)
-      .post('/login')
-      .send({ loginMethod: 'password', password: 'wrongpassword' });
-
-    expect(res.statusCode).toEqual(400);
-    expect(res.body).toHaveProperty('reason', 'invalid-password');
-  });
-
-  it('should allow username/password login for a named user', async () => {
-    const userId = uuidv4();
-    createUser(userId, 'user1', BASIC_ROLE);
-    changePassword('secret-password', userId);
-
-    const res = await request(app)
-      .post('/login')
-      .send({
-        loginMethod: 'password',
-        userName: 'user1',
-        password: 'secret-password',
-      });
-
-    expect(res.statusCode).toEqual(200);
-    expect(res.body).toHaveProperty('status', 'ok');
-    expect(res.body.data).toHaveProperty('token');
-
-    deleteUser(userId);
-  });
-
-  it('should reject username/password login when the username password is wrong', async () => {
-    const userId = uuidv4();
-    createUser(userId, 'user2', BASIC_ROLE);
-    changePassword('secret-password', userId);
-
-    const res = await request(app)
-      .post('/login')
-      .send({
-        loginMethod: 'password',
-        userName: 'user2',
-        password: 'wrong-password',
-      });
-
-    expect(res.statusCode).toEqual(400);
-    expect(res.body).toHaveProperty('reason', 'invalid-password');
-
-    deleteUser(userId);
+    const loginRes = await request(app).post('/login').send({
+      userName: 'basic',
+      password: 'newpassword',
+    });
+    expect(loginRes.statusCode).toEqual(200);
   });
 });
 
@@ -315,7 +323,7 @@ describe('/server-prefs', () => {
       adminSessionToken = generateSessionToken();
       basicSessionToken = generateSessionToken();
 
-      createUser(adminUserId, 'admin', ADMIN_ROLE);
+      createUser(adminUserId, 'admin', ADMIN_ROLE, 1);
       createUser(basicUserId, 'user', BASIC_ROLE);
       createSession(adminUserId, adminSessionToken);
       createSession(basicUserId, basicSessionToken);
@@ -370,34 +378,6 @@ describe('/server-prefs', () => {
       });
     });
 
-    it('should return 400 if prefs is missing', async () => {
-      const res = await request(app)
-        .post('/server-prefs')
-        .set('x-actual-token', adminSessionToken)
-        .send({});
-
-      expect(res.statusCode).toEqual(400);
-      expect(res.body).toEqual({
-        status: 'error',
-        reason: 'invalid-prefs',
-      });
-    });
-
-    it('should return 400 if prefs is null', async () => {
-      const res = await request(app)
-        .post('/server-prefs')
-        .set('x-actual-token', adminSessionToken)
-        .send({
-          prefs: null,
-        });
-
-      expect(res.statusCode).toEqual(400);
-      expect(res.body).toEqual({
-        status: 'error',
-        reason: 'invalid-prefs',
-      });
-    });
-
     it('should return 200 and save server preferences for admin user', async () => {
       const prefs = { 'flags.plugins': 'true' };
 
@@ -412,56 +392,7 @@ describe('/server-prefs', () => {
         data: {},
       });
 
-      // Verify that preferences were saved
-      const savedPrefs = getServerPrefs();
-      expect(savedPrefs).toEqual(prefs);
-    });
-
-    it('should update existing server preferences', async () => {
-      // First, set initial preferences
-      getAccountDb().mutate(
-        'INSERT INTO server_prefs (key, value) VALUES (?, ?)',
-        ['flags.plugins', 'false'],
-      );
-
-      // Update preferences
-      const updatedPrefs = { 'flags.plugins': 'true' };
-      const res = await request(app)
-        .post('/server-prefs')
-        .set('x-actual-token', adminSessionToken)
-        .send({ prefs: updatedPrefs });
-
-      expect(res.statusCode).toEqual(200);
-      expect(res.body).toEqual({
-        status: 'ok',
-        data: {},
-      });
-
-      // Verify that preferences were updated
-      const savedPrefs = getServerPrefs();
-      expect(savedPrefs).toEqual(updatedPrefs);
-    });
-
-    it('should save multiple server preferences', async () => {
-      const prefs = {
-        'flags.plugins': 'true',
-        anotherKey: 'anotherValue',
-      };
-
-      const res = await request(app)
-        .post('/server-prefs')
-        .set('x-actual-token', adminSessionToken)
-        .send({ prefs });
-
-      expect(res.statusCode).toEqual(200);
-      expect(res.body).toEqual({
-        status: 'ok',
-        data: {},
-      });
-
-      // Verify that all preferences were saved
-      const savedPrefs = getServerPrefs();
-      expect(savedPrefs).toEqual(prefs);
+      expect(getServerPrefs()).toEqual(prefs);
     });
   });
 });

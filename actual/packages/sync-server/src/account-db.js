@@ -1,9 +1,10 @@
 import { join, resolve } from 'node:path';
 
-import * as bcrypt from 'bcrypt';
-
-import { bootstrapOpenId } from './accounts/openid';
-import { bootstrapPassword, loginWithPassword } from './accounts/password';
+import {
+  canRegisterFirstUser,
+  ensurePasswordAuthInitialized,
+  registerPasswordUser,
+} from './accounts/password';
 import { openDatabase } from './db';
 import { config } from './load-config';
 
@@ -19,36 +20,19 @@ export function getAccountDb() {
 }
 
 export function needsBootstrap() {
-  const accountDb = getAccountDb();
-  const rows = accountDb.all('SELECT * FROM auth');
-  return rows.length === 0;
+  return canRegisterFirstUser();
 }
 
 export function listLoginMethods() {
-  const accountDb = getAccountDb();
-  const rows = accountDb.all('SELECT method, display_name, active FROM auth');
-  return rows
-    .filter(f =>
-      rows.length > 1 && config.get('enforceOpenId')
-        ? f.method === 'openid'
-        : true,
-    )
-    .map(r => ({
-      method: r.method,
-      active: r.active,
-      displayName: r.display_name,
-    }));
+  return [{ method: 'password', active: true, displayName: 'Password' }];
 }
 
 export function getActiveLoginMethod() {
-  const accountDb = getAccountDb();
-  const { method } =
-    accountDb.first('SELECT method FROM auth WHERE active = 1') || {};
-  return method;
+  return 'password';
 }
 
 export function isMultiuserAuthEnabled() {
-  return ['password', 'openid'].includes(getActiveLoginMethod());
+  return false;
 }
 
 /*
@@ -58,86 +42,25 @@ export function isMultiuserAuthEnabled() {
  * fall back to using password
  */
 export function getLoginMethod(req) {
-  if (
-    typeof req !== 'undefined' &&
-    (req.body || { loginMethod: null }).loginMethod &&
-    config.get('allowedLoginMethods').includes(req.body.loginMethod)
-  ) {
-    const accountDb = getAccountDb();
-    const row = accountDb.first('SELECT method FROM auth WHERE method = ?', [
-      req.body.loginMethod,
-    ]);
-    if (row) return req.body.loginMethod;
-  }
-
-  //BY-PASS ANY OTHER CONFIGURATION TO ENSURE HEADER AUTH
-  if (
-    config.get('loginMethod') === 'header' &&
-    config.get('allowedLoginMethods').includes('header')
-  ) {
-    return config.get('loginMethod');
-  }
-
-  const activeMethod = getActiveLoginMethod();
-  return activeMethod || config.get('loginMethod');
+  return 'password';
 }
 
 export async function bootstrap(loginSettings, forced = false) {
   if (!loginSettings) {
     return { error: 'invalid-login-settings' };
   }
-  const passEnabled = 'password' in loginSettings;
-  const openIdEnabled = 'openId' in loginSettings;
-
-  const accountDb = getAccountDb();
-  accountDb.mutate('BEGIN TRANSACTION');
-  try {
-    const { countOfOwner } =
-      accountDb.first(
-        `SELECT count(*) as countOfOwner
-   FROM users
-   WHERE users.user_name <> '' and users.owner = 1`,
-      ) || {};
-
-    if (!forced && (!openIdEnabled || countOfOwner > 0)) {
-      if (!needsBootstrap()) {
-        accountDb.mutate('ROLLBACK');
-        return { error: 'already-bootstrapped' };
-      }
-    }
-
-    if (!passEnabled && !openIdEnabled) {
-      accountDb.mutate('ROLLBACK');
-      return { error: 'no-auth-method-selected' };
-    }
-
-    if (passEnabled && openIdEnabled && !forced) {
-      accountDb.mutate('ROLLBACK');
-      return { error: 'max-one-method-allowed' };
-    }
-
-    if (passEnabled) {
-      const { error } = bootstrapPassword(loginSettings.password);
-      if (error) {
-        accountDb.mutate('ROLLBACK');
-        return { error };
-      }
-    }
-
-    if (openIdEnabled && forced) {
-      const { error } = await bootstrapOpenId(loginSettings.openId);
-      if (error) {
-        accountDb.mutate('ROLLBACK');
-        return { error };
-      }
-    }
-
-    accountDb.mutate('COMMIT');
-    return passEnabled ? loginWithPassword(loginSettings.password) : {};
-  } catch (error) {
-    accountDb.mutate('ROLLBACK');
-    throw error;
+  if (!forced && !needsBootstrap()) {
+    return { error: 'already-bootstrapped' };
   }
+
+  const result = registerPasswordUser({
+    userName: loginSettings.userName,
+    password: loginSettings.password,
+    displayName: loginSettings.displayName,
+    owner: true,
+  });
+
+  return result.error ? { error: result.error } : { token: result.token };
 }
 
 export function isAdmin(userId) {
@@ -149,78 +72,12 @@ export function hasPermission(userId, permission) {
 }
 
 export async function enableOpenID(loginSettings) {
-  if (!loginSettings || !loginSettings.openId) {
-    return { error: 'invalid-login-settings' };
-  }
-
-  const { error } = (await bootstrapOpenId(loginSettings.openId)) || {};
-  if (error) {
-    return { error };
-  }
-
-  getAccountDb().mutate('DELETE FROM sessions');
+  return { error: 'openid-disabled' };
 }
 
 export async function disableOpenID(loginSettings) {
-  if (!loginSettings || !loginSettings.password) {
-    return { error: 'invalid-login-settings' };
-  }
-
-  const accountDb = getAccountDb();
-  const { extra_data: passwordHash } =
-    accountDb.first('SELECT extra_data FROM auth WHERE method = ?', [
-      'password',
-    ]) || {};
-
-  if (!passwordHash) {
-    return { error: 'invalid-password' };
-  }
-
-  if (!loginSettings?.password) {
-    return { error: 'invalid-password' };
-  }
-
-  if (passwordHash) {
-    const confirmed = bcrypt.compareSync(loginSettings.password, passwordHash);
-
-    if (!confirmed) {
-      return { error: 'invalid-password' };
-    }
-  }
-
-  const { error } = bootstrapPassword(loginSettings.password) || {};
-  if (error) {
-    return { error };
-  }
-
-  try {
-    accountDb.transaction(() => {
-      accountDb.mutate('DELETE FROM sessions');
-      accountDb.mutate(
-        `DELETE FROM user_access
-                              WHERE user_access.user_id IN (
-                                  SELECT users.id
-                                  FROM users
-                                  WHERE users.user_name <> ?
-                              );`,
-        [''],
-      );
-      accountDb.mutate(
-        `DELETE FROM user_passwords
-         WHERE user_id IN (
-           SELECT users.id
-           FROM users
-           WHERE users.user_name <> ?
-         );`,
-        [''],
-      );
-      accountDb.mutate('DELETE FROM users WHERE user_name <> ?', ['']);
-      accountDb.mutate('DELETE FROM auth WHERE method = ?', ['openid']);
-    });
-  } catch (err) {
-    console.error('Error cleaning up openid information:', err);
-    return { error: 'database-error' };
-  }
+  ensurePasswordAuthInitialized();
+  getAccountDb().mutate('DELETE FROM sessions');
 }
 
 export function getSession(token) {

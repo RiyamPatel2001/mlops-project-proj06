@@ -3,6 +3,8 @@ import React, { useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { Button } from '@actual-app/components/button';
+import { useResponsive } from '@actual-app/components/hooks/useResponsive';
+import { BigInput } from '@actual-app/components/input';
 import { Paragraph } from '@actual-app/components/paragraph';
 import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
@@ -10,52 +12,80 @@ import { View } from '@actual-app/components/view';
 import { send } from '@actual-app/core/platform/client/connection';
 
 import { createBudget } from '#budgetfiles/budgetfilesSlice';
-import { Link } from '#components/common/Link';
-import { useRefreshLoginMethods } from '#components/ServerContext';
 import { useNavigate } from '#hooks/useNavigate';
 import { useDispatch } from '#redux';
+import { loggedIn } from '#users/usersSlice';
 
 import { Title, useBootstrapped } from './common';
-import { ConfirmPasswordForm } from './ConfirmPasswordForm';
 
 export function Bootstrap() {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const [error, setError] = useState(null);
-  const refreshLoginMethods = useRefreshLoginMethods();
-
-  const { checked } = useBootstrapped();
   const navigate = useNavigate();
+  const { isNarrowWidth } = useResponsive();
+  const { checked } = useBootstrapped();
+  const [userName, setUserName] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  function getErrorMessage(error) {
-    switch (error) {
+  function getErrorMessage(currentError) {
+    switch (currentError) {
+      case 'invalid-username':
+        return t('Username cannot be empty');
       case 'invalid-password':
         return t('Password cannot be empty');
       case 'password-match':
         return t('Passwords do not match');
+      case 'user-already-exists':
+        return t('That username is already in use');
       case 'network-failure':
         return t('Unable to contact the server');
-      case 'missing-issuer':
-        return t('OpenID server cannot be empty');
-      case 'missing-client-id':
-        return t('Client ID cannot be empty');
-      case 'missing-client-secret':
-        return t('Client secret cannot be empty');
       default:
-        return t(`An unknown error occurred: {{error}}`, { error });
+        return t(`An unknown error occurred: {{error}}`, {
+          error: currentError,
+        });
     }
   }
 
-  async function onSetPassword(password) {
+  async function onSubmit() {
+    if (submitting) {
+      return;
+    }
+
+    if (userName.trim() === '') {
+      setError('invalid-username');
+      return;
+    }
+
+    if (password === '') {
+      setError('invalid-password');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('password-match');
+      return;
+    }
+
     setError(null);
-    const { error } = await send('subscribe-bootstrap', { password });
+    setSubmitting(true);
+    const { error } = await send('subscribe-bootstrap', {
+      userName,
+      displayName,
+      password,
+    });
+    setSubmitting(false);
 
     if (error) {
       setError(error);
-    } else {
-      await refreshLoginMethods();
-      void navigate('/login');
+      return;
     }
+
+    dispatch(loggedIn());
+    void navigate('/');
   }
 
   async function onDemo() {
@@ -68,22 +98,11 @@ export function Bootstrap() {
 
   return (
     <View style={{ maxWidth: 450 }}>
-      <Title text={t('Welcome to Actual!')} />
+      <Title text={t('Create your first Actual account')} />
       <Paragraph style={{ fontSize: 16, color: theme.pageTextDark }}>
         <Trans>
-          Actual is a super fast privacy-focused app for managing your finances.
-          To secure your data, you'll need to set a password for your server.
-        </Trans>
-      </Paragraph>
-
-      <Paragraph isLast style={{ fontSize: 16, color: theme.pageTextDark }}>
-        <Trans>
-          Consider opening{' '}
-          <Link variant="external" to="https://actualbudget.org/docs/tour/">
-            our tour
-          </Link>{' '}
-          in a new tab for some guidance on what to do when you've set your
-          password.
+          This server does not have any users yet. Create the first account to
+          finish setup and start using Actual.
         </Trans>
       </Paragraph>
 
@@ -100,23 +119,54 @@ export function Bootstrap() {
         </Text>
       )}
 
-      <ConfirmPasswordForm
-        buttons={
+      <View style={{ flexDirection: 'column', gap: '1rem', marginTop: 10 }}>
+        <BigInput
+          autoFocus
+          placeholder={t('Username')}
+          onChangeValue={setUserName}
+          onEnter={onSubmit}
+        />
+        <BigInput
+          placeholder={t('Display name (optional)')}
+          onChangeValue={setDisplayName}
+          onEnter={onSubmit}
+        />
+        <BigInput
+          placeholder={t('Password')}
+          type="password"
+          onChangeValue={setPassword}
+          onEnter={onSubmit}
+        />
+        <BigInput
+          placeholder={t('Confirm password')}
+          type="password"
+          onChangeValue={setConfirmPassword}
+          onEnter={onSubmit}
+        />
+        <View
+          style={{
+            flexDirection: isNarrowWidth ? 'column' : 'row',
+            justifyContent: 'space-between',
+            gap: '1rem',
+          }}
+        >
           <Button
             variant="bare"
-            style={{
-              fontSize: 15,
-              color: theme.pageTextLink,
-              marginRight: 15,
-            }}
+            style={{ fontSize: 15, color: theme.pageTextLink }}
             onPress={onDemo}
           >
             {t('Try Demo')}
           </Button>
-        }
-        onSetPassword={onSetPassword}
-        onError={setError}
-      />
+          <Button
+            variant="primary"
+            style={{ fontSize: 15, width: isNarrowWidth ? '100%' : 190 }}
+            isDisabled={submitting}
+            onPress={onSubmit}
+          >
+            <Trans>Create account</Trans>
+          </Button>
+        </View>
+      </View>
     </View>
   );
 }

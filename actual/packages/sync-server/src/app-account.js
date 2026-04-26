@@ -4,7 +4,6 @@ import rateLimit from 'express-rate-limit';
 import {
   bootstrap,
   getLoginMethod,
-  isMultiuserAuthEnabled,
   getServerPrefs,
   getUserInfo,
   isAdmin,
@@ -12,10 +11,13 @@ import {
   needsBootstrap,
   setServerPrefs,
 } from './account-db';
-import { isValidRedirectUrl, loginWithOpenIdSetup } from './accounts/openid';
-import { changePassword, loginWithPassword } from './accounts/password';
+import {
+  changePassword,
+  loginWithPassword,
+  registerPasswordUser,
+} from './accounts/password';
 import { errorMiddleware, requestLoggerMiddleware } from './util/middlewares';
-import { validateAuthHeader, validateSession } from './util/validate-user';
+import { validateSession } from './util/validate-user';
 
 const app = express();
 app.use(express.json());
@@ -45,12 +47,9 @@ app.get('/needs-bootstrap', (req, res) => {
     status: 'ok',
     data: {
       bootstrapped: !needsBootstrap(),
-      loginMethod:
-        availableLoginMethods.length === 1
-          ? availableLoginMethods[0].method
-          : getLoginMethod(),
+      loginMethod: getLoginMethod(),
       availableLoginMethods,
-      multiuser: isMultiuserAuthEnabled(),
+      multiuser: false,
     },
   });
 });
@@ -71,52 +70,7 @@ app.get('/login-methods', (req, res) => {
 });
 
 app.post('/login', authRateLimiter, async (req, res) => {
-  const loginMethod = getLoginMethod(req);
-  console.log('Logging in via ' + loginMethod);
-  let tokenRes = null;
-  switch (loginMethod) {
-    case 'header': {
-      const headerVal = req.get('x-actual-password') || '';
-      const obfuscated =
-        '*'.repeat(headerVal.length) || 'No password provided.';
-      console.debug('HEADER VALUE: ' + obfuscated);
-      if (headerVal === '') {
-        res.send({ status: 'error', reason: 'invalid-header' });
-        return;
-      } else {
-        if (validateAuthHeader(req)) {
-          tokenRes = loginWithPassword(headerVal);
-        } else {
-          res.send({ status: 'error', reason: 'proxy-not-trusted' });
-          return;
-        }
-      }
-      break;
-    }
-    case 'openid': {
-      if (!isValidRedirectUrl(req.body.returnUrl)) {
-        res
-          .status(400)
-          .send({ status: 'error', reason: 'Invalid redirect URL' });
-        return;
-      }
-
-      const { error, url } = await loginWithOpenIdSetup(
-        req.body.returnUrl,
-        req.body.password,
-      );
-      if (error) {
-        res.status(400).send({ status: 'error', reason: error });
-        return;
-      }
-      res.send({ status: 'ok', data: { returnUrl: url } });
-      return;
-    }
-
-    default:
-      tokenRes = loginWithPassword(req.body.password, req.body.userName);
-      break;
-  }
+  const tokenRes = loginWithPassword(req.body.password, req.body.userName);
   const { error, token } = tokenRes;
 
   if (error) {
@@ -127,18 +81,26 @@ app.post('/login', authRateLimiter, async (req, res) => {
   res.send({ status: 'ok', data: { token } });
 });
 
+app.post('/register', authRateLimiter, async (req, res) => {
+  const creatingFirstUser = needsBootstrap();
+  const result = registerPasswordUser({
+    userName: req.body.userName,
+    password: req.body.password,
+    displayName: req.body.displayName,
+    owner: creatingFirstUser,
+  });
+
+  if (result.error) {
+    res.status(400).send({ status: 'error', reason: result.error });
+    return;
+  }
+
+  res.send({ status: 'ok', data: { token: result.token } });
+});
+
 app.post('/change-password', (req, res) => {
   const session = validateSession(req, res);
   if (!session) return;
-
-  if (!isAdmin(session.user_id)) {
-    res.status(403).send({
-      status: 'error',
-      reason: 'forbidden',
-      details: 'permission-not-found',
-    });
-    return;
-  }
 
   if (session.auth_method !== 'password') {
     res.status(403).send({
@@ -155,20 +117,7 @@ app.post('/change-password', (req, res) => {
     return;
   }
 
-  const isSharedPasswordAdmin = user.user_name === '';
-  if (isSharedPasswordAdmin && !isAdmin(session.user_id)) {
-    res.status(403).send({
-      status: 'error',
-      reason: 'forbidden',
-      details: 'permission-not-found',
-    });
-    return;
-  }
-
-  const { error } = changePassword(
-    req.body.password,
-    isSharedPasswordAdmin ? null : session.user_id,
-  );
+  const { error } = changePassword(req.body.password, session.user_id);
 
   if (error) {
     res.status(400).send({ status: 'error', reason: error });
