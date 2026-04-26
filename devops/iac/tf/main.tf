@@ -233,3 +233,18 @@ resource "openstack_networking_secgroup_rule_v2" "argocd_http_rule" {
   remote_ip_prefix  = "0.0.0.0/0"
   security_group_id = openstack_networking_secgroup_v2.argocd.id
 }
+
+resource "openstack_networking_secgroup_v2" "postgres_nodeport" {
+  name        = "allow-30432-${var.suffix}"
+  description = "Postgres NodePort"
+}
+
+resource "openstack_networking_secgroup_rule_v2" "postgres_nodeport_rule" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30432
+  port_range_max    = 30432
+  remote_ip_prefix  = "0.0.0.0/0"
+  security_group_id = openstack_networking_secgroup_v2.postgres_nodeport.id
+}
