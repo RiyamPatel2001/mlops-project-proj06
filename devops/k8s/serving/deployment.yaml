@@ -50,7 +50,7 @@ spec:
     spec:
       containers:
         - name: fastapi
-          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:5ec15c676b325039e37f576cdbc124c255c1b6dd
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/transaction-classifier:3b2b9e3698a2026bf972cd1426e0ee65194f333c
           imagePullPolicy: Always
           ports:
             - name: http
