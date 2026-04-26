@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: layer2-config
+  namespace: mlops
+data:
+  config.yaml: |
+    mlflow:
+      tracking_uri: "http://mlflow-proj06.mlops.svc.cluster.local:5000"
+      experiment_name: "layer2-evaluation"
+    minio:
+      endpoint: "http://minio.mlops.svc.cluster.local:9000"
+      bucket: "data"
+      object: "processed/train.csv"
+    layer2:
+      model_name: "sentence-transformers/all-mpnet-base-v2"
+      max_length: 128
+      k: 5
+      similarity_threshold: 0.75
+      min_history: 10
+      store_path: "/app/artifacts/user_store.pkl"
+    layer3:
+      eps: 0.15
+      min_samples: 3
+      store_path: "/app/artifacts/user_store.pkl"
+    postgres:
+      dsn: "postgresql://mlops_user:mlops_pass@postgres.mlops.svc.cluster.local:5432/mlops"

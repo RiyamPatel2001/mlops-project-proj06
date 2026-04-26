@@ -1,31 +1,31 @@
 mlflow:
-  tracking_uri: "http://129.114.25.143:30500"
-  experiment_name: "layer2-evaluation"
+  tracking_uri: http://129.114.25.143:30500
+  experiment_name: layer2-evaluation
 
 minio:
-  endpoint: "http://129.114.25.143:30900"
-  bucket: "data"
-  object: "processed/train.csv"
+  endpoint: http://129.114.25.143:30900
+  bucket: data
+  object: processed/train.csv
 
 data:
-  train_csv: "http://129.114.25.143:30900/data/processed/train.csv"   # kept for reference
+  train_csv: http://129.114.25.143:30900/data/processed/train.csv
 
 layer1:
-  model_uri: "runs:/85b08fba7b6f4ad183702adad093b673/fasttext.bin"
-  model_version: "fasttext-v1"
+  model_uri: runs:/85b08fba7b6f4ad183702adad093b673/fasttext.bin
+  model_version: fasttext-v1
 
 layer2:
-  model_name: "sentence-transformers/all-mpnet-base-v2"
+  model_name: sentence-transformers/all-mpnet-base-v2
   max_length: 128
   k: 5
   similarity_threshold: 0.75
   min_history: 10
-  store_path: "http://129.114.25.143:30900/data/user_store/user_store.pkl"    # PVC mounted at /app/artifacts
+  store_path: http://129.114.25.143:30900/data/user_store/user_store.pkl
 
 layer3:
-  eps: 0.15              # DBSCAN epsilon (cosine distance, not similarity)
-  min_samples: 3         # minimum cluster size
-  store_path: "http://129.114.25.143:30900/data/user_store/user_store.pkl"   # PVC mounted at /app/artifacts
+  eps: 0.15
+  min_samples: 3
+  store_path: http://129.114.25.143:30900/data/user_store/user_store.pkl
 
 postgres:
-  dsn: "postgresql://mlops_user:mlops_pass@10.43.98.71:5432/mlops"
+  dsn: postgresql://mlops_user:mlops_pass@10.43.98.71:5432/mlops
