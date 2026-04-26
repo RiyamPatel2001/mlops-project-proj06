@@ -31,6 +31,7 @@ import json
 import os
 import pickle
 import tempfile
+from urllib.parse import urlparse
 
 import fasttext
 import mlflow
@@ -173,12 +174,25 @@ def main() -> None:
     embedder = Embedder(model_name=l2["model_name"], max_length=l2.get("max_length", 128))
 
     store_path = l2["store_path"]
-    if not os.path.exists(store_path):
-        raise FileNotFoundError(
-            f"User store not found at {store_path}. Run build_store.py first."
-        )
-    with open(store_path, "rb") as f:
-        store = pickle.load(f)
+    if store_path.startswith("http://") or store_path.startswith("https://"):
+        p = urlparse(store_path)
+        bucket, obj = p.path.lstrip("/").split("/", 1)
+        try:
+            response = make_minio_client(cfg).get_object(bucket, obj)
+            store = pickle.load(response)
+            response.close()
+            response.release_conn()
+        except Exception as e:
+            raise FileNotFoundError(
+                f"User store not found at {store_path}. Run build_store.py first."
+            ) from e
+    else:
+        if not os.path.exists(store_path):
+            raise FileNotFoundError(
+                f"User store not found at {store_path}. Run build_store.py first."
+            )
+        with open(store_path, "rb") as f:
+            store = pickle.load(f)
     print(f"Loaded store with {len(store)} users.")
 
     # ── Predict ────────────────────────────────────────────────────────────────
