@@ -104,9 +104,9 @@ def predict_batch(
 ) -> pd.DataFrame:
     """Run predictions on df_test without mutating the store."""
     df_test = df_test.copy()
-    df_test["_dom"] = pd.to_datetime(df_test["date"]).dt.day
+    df_test["dom"] = pd.to_datetime(df_test["date"]).dt.day
     embed_texts = [
-        make_embed_text(row.payee, row.amount, row.day_of_week, row._dom)
+        make_embed_text(row.payee, row.amount, row.day_of_week, row.dom)
         for row in df_test.itertuples(index=False)
     ]
 

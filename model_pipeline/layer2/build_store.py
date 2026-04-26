@@ -105,9 +105,9 @@ def build_store(df: pd.DataFrame, embedder: Embedder) -> dict:
     batch-embed all payees and build the per-user dictionary.
     """
     df = df.copy()
-    df["_dom"] = pd.to_datetime(df["date"]).dt.day
+    df["dom"] = pd.to_datetime(df["date"]).dt.day
     embed_texts = [
-        make_embed_text(row.payee, row.amount, row.day_of_week, row._dom)
+        make_embed_text(row.payee, row.amount, row.day_of_week, row.dom)
         for row in df.itertuples(index=False)
     ]
     print(f"  Embedding {len(embed_texts)} transactions...")
