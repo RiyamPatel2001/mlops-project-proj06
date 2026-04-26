@@ -112,6 +112,37 @@ async def insert_feedback(row: dict[str, Any]) -> int:
     async with _pool.acquire() as conn:
         rec = await conn.fetchrow(
             """
+            UPDATE feedback_store
+            SET payee = $3,
+                amount = $4,
+                date = $5,
+                original_prediction = $6,
+                original_confidence = $7,
+                final_label = $9,
+                reviewed_by_user = $10,
+                timestamp = $11
+            WHERE transaction_id = $1
+              AND user_id = $2
+              AND source = $8
+            RETURNING id
+            """,
+            row["transaction_id"],
+            row["user_id"],
+            row["payee"],
+            row["amount"],
+            row["date"],
+            row.get("original_prediction"),
+            row.get("original_confidence"),
+            row.get("source", "layer1"),
+            row["final_label"],
+            row["reviewed_by_user"],
+            row.get("timestamp", datetime.utcnow()),
+        )
+        if rec:
+            return rec["id"]  # type: ignore[index]
+
+        rec = await conn.fetchrow(
+            """
             INSERT INTO feedback_store
                 (transaction_id, user_id, payee, amount, date,
                  original_prediction, original_confidence, source,
