@@ -10,10 +10,9 @@ import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
-import { loadAllFiles } from '#budgetfiles/budgetfilesSlice';
 import { useNavigate } from '#hooks/useNavigate';
 import { useDispatch } from '#redux';
-import { loadUserData } from '#users/usersSlice';
+import { loggedIn } from '#users/usersSlice';
 
 import {
   getStoredMLUsername,
@@ -104,10 +103,7 @@ export function MLServiceAuth() {
 
     if (login.ok) {
       setPassword('');
-      await dispatch(loadAllFiles());
-      dispatch(
-        loadUserData({ data: { offline: false, userName: trimmedUsername } }),
-      );
+      await dispatch(loggedIn());
       void navigate('/', { replace: true });
     } else {
       setMessageTone('error');

@@ -239,6 +239,10 @@ function getStoredToken(): string | null {
   return window.localStorage.getItem(ML_AUTH_TOKEN_STORAGE_KEY);
 }
 
+export function hasStoredMLAuthToken(): boolean {
+  return Boolean(getStoredToken());
+}
+
 export function getStoredMLUsername(): string {
   if (typeof window === 'undefined') {
     return '';
