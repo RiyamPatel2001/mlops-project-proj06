@@ -212,6 +212,20 @@ describe('mlService', () => {
     });
   });
 
+  it('surfaces incorrect credentials during ML sign-in', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ detail: 'invalid-credentials' }),
+    } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(signInMLUser('jayraj', 'wrong-password')).resolves.toEqual({
+      ok: false,
+      message: 'Incorrect username or password.',
+    });
+  });
+
   it('reports network failures when tagged examples cannot reach the service', async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
     vi.stubGlobal('fetch', fetchMock);

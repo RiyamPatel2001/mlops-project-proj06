@@ -26,9 +26,24 @@ function resolveBrowserDefaultServingUrl() {
   return `${protocol}//${hostname}:8000`;
 }
 
-const ML_SERVING_URL =
-  (typeof window !== 'undefined' && window.__ML_SERVING_URL__) ||
-  resolveBrowserDefaultServingUrl();
+function normalizeServingUrl(url: string) {
+  return url.replace(/\/$/, '');
+}
+
+function resolveMlServiceBaseUrls() {
+  if (typeof window === 'undefined') {
+    return [normalizeServingUrl('http://localhost:8000')];
+  }
+
+  const configuredUrl = window.__ML_SERVING_URL__?.trim();
+  const candidates = configuredUrl
+    ? [configuredUrl]
+    : [new URL('/ml', window.location.origin).toString(), resolveBrowserDefaultServingUrl()];
+
+  return [...new Set(candidates.map(normalizeServingUrl))];
+}
+
+const ML_SERVING_URLS = resolveMlServiceBaseUrls();
 const ML_AUTH_TOKEN_STORAGE_KEY = 'ml-serving-auth-token';
 const ML_AUTH_USERNAME_STORAGE_KEY = 'ml-serving-username';
 
@@ -141,45 +156,47 @@ async function post<T>(path: string, body: unknown): Promise<T | null> {
 async function postWithStatus<T>(
   path: string,
   body: unknown,
-): Promise<{ status: number; data: T | null; error: 'auth' | 'network' | null }> {
+): Promise<{
+  status: number;
+  data: T | null;
+  detail: string | null;
+  error: 'auth' | 'network' | null;
+}> {
   const token = await ensureAuthenticatedSession();
   if (!token) {
-    return { status: 401, data: null, error: 'auth' };
+    return { status: 401, data: null, detail: null, error: 'auth' };
   }
 
-  try {
-    let resp = await fetch(`${ML_SERVING_URL}${path}`, {
+  const result = await fetchMlService<T>(currentBaseUrl =>
+    fetch(`${currentBaseUrl}${path}`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
-    });
-    if (resp.status === 401) {
-      clearMLAuthSession();
-      const refreshedToken = await ensureAuthenticatedSession();
-      if (!refreshedToken) {
-        return { status: 401, data: null, error: 'auth' };
-      }
-
-      resp = await fetch(`${ML_SERVING_URL}${path}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${refreshedToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
-    }
-    return {
-      status: resp.status,
-      data: resp.ok ? ((await resp.json()) as T) : null,
-      error: null,
-    };
-  } catch {
-    return { status: 0, data: null, error: 'network' };
+    }),
+  );
+  if (result.status !== 401) {
+    return result;
   }
+
+  clearMLAuthSession();
+  const refreshedToken = await ensureAuthenticatedSession();
+  if (!refreshedToken) {
+    return { status: 401, data: null, detail: null, error: 'auth' };
+  }
+
+  return fetchMlService<T>(currentBaseUrl =>
+    fetch(`${currentBaseUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${refreshedToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    }),
+  );
 }
 
 async function get<T>(path: string): Promise<T | null> {
@@ -188,30 +205,31 @@ async function get<T>(path: string): Promise<T | null> {
     return null;
   }
 
-  try {
-    let resp = await fetch(`${ML_SERVING_URL}${path}`, {
+  let result = await fetchMlService<T>(currentBaseUrl =>
+    fetch(`${currentBaseUrl}${path}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
-    });
-    if (resp.status === 401) {
-      clearMLAuthSession();
-      const refreshedToken = await ensureAuthenticatedSession();
-      if (!refreshedToken) {
-        return null;
-      }
+    }),
+  );
 
-      resp = await fetch(`${ML_SERVING_URL}${path}`, {
+  if (result.status === 401) {
+    clearMLAuthSession();
+    const refreshedToken = await ensureAuthenticatedSession();
+    if (!refreshedToken) {
+      return null;
+    }
+
+    result = await fetchMlService<T>(currentBaseUrl =>
+      fetch(`${currentBaseUrl}${path}`, {
         headers: {
           'Authorization': `Bearer ${refreshedToken}`,
         },
-      });
-    }
-    if (!resp.ok) return null;
-    return (await resp.json()) as T;
-  } catch {
-    return null;
+      }),
+    );
   }
+
+  return result.data;
 }
 
 function getStoredToken(): string | null {
@@ -247,20 +265,91 @@ export function clearMLAuthSession() {
 async function postWithoutSession<T>(
   path: string,
   body: unknown,
-): Promise<{ status: number; data: T | null }> {
-  try {
-    const resp = await fetch(`${ML_SERVING_URL}${path}`, {
+): Promise<{ status: number; data: T | null; detail: string | null }> {
+  return fetchMlService<T>(currentBaseUrl =>
+    fetch(`${currentBaseUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    }),
+  );
+}
+
+async function readResponsePayload<T>(resp: Response): Promise<{
+  data: T | null;
+  detail: string | null;
+}> {
+  try {
+    const payload = await resp.json();
+    if (resp.ok) {
+      return { data: payload as T, detail: null };
+    }
     return {
-      status: resp.status,
-      data: resp.ok ? ((await resp.json()) as T) : null,
+      data: null,
+      detail:
+        payload && typeof payload === 'object' && 'detail' in payload
+          ? String(payload.detail)
+          : null,
     };
   } catch {
-    return { status: 0, data: null };
+    return { data: null, detail: null };
   }
+}
+
+function shouldRetryNextMlBaseUrl(status: number, index: number) {
+  return index < ML_SERVING_URLS.length - 1 && [0, 404, 502].includes(status);
+}
+
+async function fetchMlService<T>(
+  request: (currentBaseUrl: string) => Promise<Response>,
+): Promise<{
+  status: number;
+  data: T | null;
+  detail: string | null;
+  error: 'auth' | 'network' | null;
+}> {
+  let lastResult: {
+    status: number;
+    data: T | null;
+    detail: string | null;
+    error: 'auth' | 'network' | null;
+  } = {
+    status: 0,
+    data: null,
+    detail: null,
+    error: 'network' as const,
+  };
+
+  for (const [index, currentBaseUrl] of ML_SERVING_URLS.entries()) {
+    try {
+      const response = await request(currentBaseUrl);
+      const payload = await readResponsePayload<T>(response);
+      const result = {
+        status: response.status,
+        data: payload.data,
+        detail: payload.detail,
+        error: null,
+      };
+
+      if (!shouldRetryNextMlBaseUrl(result.status, index)) {
+        return result;
+      }
+      lastResult = result;
+    } catch {
+      if (shouldRetryNextMlBaseUrl(0, index)) {
+        continue;
+      }
+
+      lastResult = {
+        status: 0,
+        data: null,
+        detail: null,
+        error: 'network',
+      };
+    }
+  }
+
+  return lastResult;
 }
 
 async function ensureAuthenticatedSession(): Promise<string | null> {
@@ -541,6 +630,11 @@ export async function registerMLUser(
         ok: false,
         message: 'That username is already taken. Choose a different one.',
       };
+    case 400:
+      return {
+        ok: false,
+        message: 'Enter a valid username and password.',
+      };
     case 503:
       return {
         ok: false,
@@ -562,28 +656,50 @@ export async function registerMLUser(
 async function loginMlUser(
   username: string,
   password: string,
-): Promise<AuthLoginResponse | null> {
-  const result = await postWithoutSession<AuthLoginResponse>('/auth/login', {
+): Promise<{ status: number; data: AuthLoginResponse | null; detail: string | null }> {
+  return postWithoutSession<AuthLoginResponse>('/auth/login', {
     username,
     password,
   });
-  return result.status === 200 ? result.data : null;
 }
 
 export async function signInMLUser(
   username: string,
   password: string,
 ): Promise<{ ok: boolean; message: string }> {
-  const session = await loginMlUser(username, password);
-  if (session?.token) {
-    storeSession(session.token, username);
+  const result = await loginMlUser(username, password);
+  if (result.status === 200 && result.data?.token) {
+    storeSession(result.data.token, result.data.username);
     return { ok: true, message: '' };
   }
 
-  return {
-    ok: false,
-    message: 'Login failed. Check your username and password and try again.',
-  };
+  switch (result.status) {
+    case 400:
+      return {
+        ok: false,
+        message: 'Enter a valid username and password.',
+      };
+    case 401:
+      return {
+        ok: false,
+        message: 'Incorrect username or password.',
+      };
+    case 503:
+      return {
+        ok: false,
+        message: 'The ML service auth store is temporarily unavailable.',
+      };
+    case 0:
+      return {
+        ok: false,
+        message: 'Unable to reach the ML service right now. Try again shortly.',
+      };
+    default:
+      return {
+        ok: false,
+        message: 'Login failed. Check your username and password and try again.',
+      };
+  }
 }
 
 async function runAuthFlow(): Promise<string | null> {
