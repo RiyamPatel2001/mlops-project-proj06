@@ -43,6 +43,7 @@ from model_pipeline.layer2.build_store import (
     EXTRA_COLS,
     first_n_percent_per_user,
     load_csv,
+    make_embed_text,
     make_minio_client,
 )
 from model_pipeline.layer2.embedder import Embedder
@@ -102,10 +103,15 @@ def predict_batch(
     min_history: int,
 ) -> pd.DataFrame:
     """Run predictions on df_test without mutating the store."""
-    payees = [normalize_payee(p) for p in df_test["payee"].tolist()]
+    df_test = df_test.copy()
+    df_test["_dom"] = pd.to_datetime(df_test["date"]).dt.day
+    embed_texts = [
+        make_embed_text(row.payee, row.amount, row.day_of_week, row._dom)
+        for row in df_test.itertuples(index=False)
+    ]
 
-    print(f"  Embedding {len(payees):,} payees in batch ...")
-    embeddings = embedder.embed_batch(payees)
+    print(f"  Embedding {len(embed_texts):,} transactions in batch ...")
+    embeddings = embedder.embed_batch(embed_texts)
 
     records = []
     for i, row in enumerate(df_test.itertuples(index=False)):

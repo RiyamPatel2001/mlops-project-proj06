@@ -31,6 +31,30 @@ from training.utils import normalize_payee
 EXTRA_COLS = ["newid", "diary_newid", "survey_source"]
 
 
+# Mirrors data_pipeline/feature_computation/feature_computation.py::bin_amount.
+# Update both if bin boundaries change.
+def bin_amount(amount: float) -> str:
+    if amount < 20:
+        return "low"
+    elif amount < 50:
+        return "medium_low"
+    elif amount < 150:
+        return "medium"
+    elif amount < 500:
+        return "medium_high"
+    else:
+        return "high"
+
+
+def make_embed_text(payee: str, amount: float, day_of_week: str, day_of_month: int) -> str:
+    """Composite embedding string: normalized payee + amount bucket + day of week + day of month.
+
+    day_of_week must be title-cased full name (e.g. 'Friday'), matching
+    data_pipeline/feature_computation/feature_computation.py::extract_day_of_week.
+    """
+    return f"{normalize_payee(payee)} {bin_amount(amount)} {day_of_week} {day_of_month}"
+
+
 _DEFAULT_CONFIG = os.path.join(os.path.dirname(__file__), "config.yaml")
 
 
@@ -80,9 +104,14 @@ def build_store(df: pd.DataFrame, embedder: Embedder) -> dict:
     Given a DataFrame with columns [user_id, payee, category],
     batch-embed all payees and build the per-user dictionary.
     """
-    payees = [normalize_payee(p) for p in df["payee"].tolist()]
-    print(f"  Embedding {len(payees)} transactions...")
-    embeddings = embedder.embed_batch(payees)  # (n, 768) unit-normalized
+    df = df.copy()
+    df["_dom"] = pd.to_datetime(df["date"]).dt.day
+    embed_texts = [
+        make_embed_text(row.payee, row.amount, row.day_of_week, row._dom)
+        for row in df.itertuples(index=False)
+    ]
+    print(f"  Embedding {len(embed_texts)} transactions...")
+    embeddings = embedder.embed_batch(embed_texts)  # (n, 768) unit-normalized
 
     store = {}
     for idx, row in enumerate(df.itertuples(index=False)):
