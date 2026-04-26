@@ -221,7 +221,7 @@ function getStoredToken(): string | null {
   return window.localStorage.getItem(ML_AUTH_TOKEN_STORAGE_KEY);
 }
 
-function getStoredUsername(): string {
+export function getStoredMLUsername(): string {
   if (typeof window === 'undefined') {
     return '';
   }
@@ -522,7 +522,7 @@ function showAuthDialog(
   });
 }
 
-async function registerMlUser(
+export async function registerMLUser(
   username: string,
   password: string,
 ): Promise<{ ok: boolean; message: string }> {
@@ -565,12 +565,28 @@ async function loginMlUser(
   return result.status === 200 ? result.data : null;
 }
 
+export async function signInMLUser(
+  username: string,
+  password: string,
+): Promise<{ ok: boolean; message: string }> {
+  const session = await loginMlUser(username, password);
+  if (session?.token) {
+    storeSession(session.token, username);
+    return { ok: true, message: '' };
+  }
+
+  return {
+    ok: false,
+    message: 'Login failed. Check your username and password and try again.',
+  };
+}
+
 async function runAuthFlow(): Promise<string | null> {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return null;
   }
 
-  let suggestedUsername = getStoredUsername();
+  let suggestedUsername = getStoredMLUsername();
   let mode: AuthDialogMode = 'login';
   let message = '';
 
@@ -583,7 +599,7 @@ async function runAuthFlow(): Promise<string | null> {
     suggestedUsername = authAttempt.username;
 
     if (authAttempt.mode === 'register') {
-      const registration = await registerMlUser(
+      const registration = await registerMLUser(
         authAttempt.username,
         authAttempt.password,
       );
@@ -597,17 +613,16 @@ async function runAuthFlow(): Promise<string | null> {
       continue;
     }
 
-    const session = await loginMlUser(
+    const login = await signInMLUser(
       authAttempt.username,
       authAttempt.password,
     );
-    if (session?.token) {
-      storeSession(session.token, authAttempt.username);
-      return session.token;
+    if (login.ok) {
+      return getStoredToken();
     }
 
     mode = 'login';
-    message = 'Login failed. Check your username and password and try again.';
+    message = login.message;
   }
 }
 

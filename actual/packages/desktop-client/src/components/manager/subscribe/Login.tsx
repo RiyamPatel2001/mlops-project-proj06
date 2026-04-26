@@ -28,6 +28,7 @@ import { useDispatch } from '#redux';
 import { loggedIn } from '#users/usersSlice';
 
 import { Title, useBootstrapped } from './common';
+import { MLServiceAuth } from './MLServiceAuth';
 import { OpenIdForm } from './OpenIdForm';
 
 function PasswordLogin({ setError, dispatch }) {
@@ -471,6 +472,8 @@ export function Login() {
           {getErrorMessage(error)}
         </Text>
       )}
+
+      <MLServiceAuth />
     </View>
   );
 }
