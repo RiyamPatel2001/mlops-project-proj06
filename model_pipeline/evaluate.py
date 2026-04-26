@@ -243,14 +243,15 @@ def main() -> None:
     print(report_str)
 
     # ── MLflow ─────────────────────────────────────────────────────────────────
-    experiment_name = cfg["mlflow"]["experiment_name"] + args.experiment_suffix
     mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"].strip())
-    mlflow.set_experiment(experiment_name)
+    mlflow.set_experiment(cfg["mlflow"]["experiment_name"])
 
     with mlflow.start_run(run_name=args.run_name):
         git_sha = os.environ.get("GIT_SHA", "")
         if git_sha:
             mlflow.set_tag("git_sha", git_sha)
+        if args.experiment_suffix:
+            mlflow.set_tag("eval_split", args.experiment_suffix.lstrip("_"))
         if args.eval_csv:
             mlflow.set_tag("dataset", os.path.basename(args.eval_csv))
 
