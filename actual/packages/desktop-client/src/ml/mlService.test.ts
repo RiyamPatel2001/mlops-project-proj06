@@ -188,6 +188,30 @@ describe('mlService', () => {
     });
   });
 
+  it('surfaces auth store outages during ML registration', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({}),
+    } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(registerMLUser('jayraj', 'secret')).resolves.toEqual({
+      ok: false,
+      message: 'The ML service auth store is temporarily unavailable.',
+    });
+  });
+
+  it('surfaces ML service network failures during registration', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(registerMLUser('jayraj', 'secret')).resolves.toEqual({
+      ok: false,
+      message: 'Unable to reach the ML service right now. Try again shortly.',
+    });
+  });
+
   it('reports network failures when tagged examples cannot reach the service', async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
     vi.stubGlobal('fetch', fetchMock);

@@ -544,7 +544,12 @@ export async function registerMLUser(
     case 503:
       return {
         ok: false,
-        message: 'The ML service auth database is unavailable right now.',
+        message: 'The ML service auth store is temporarily unavailable.',
+      };
+    case 0:
+      return {
+        ok: false,
+        message: 'Unable to reach the ML service right now. Try again shortly.',
       };
     default:
       return {

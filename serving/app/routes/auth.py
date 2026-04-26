@@ -27,23 +27,19 @@ from app.models import (
 router = APIRouter()
 
 
-def _service_unavailable() -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail='auth-unavailable',
-    )
-
-
 @router.post(
     '/auth/register',
     response_model=AuthRegisterResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def register_user(req: AuthRegisterRequest) -> AuthRegisterResponse:
-    normalized_username = normalize_username(req.username)
-
-    if not db.pool_available():
-        raise _service_unavailable()
+    try:
+        normalized_username = normalize_username(req.username)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     user = await db.create_auth_user(
         user_id=str(uuid.uuid4()),
@@ -65,10 +61,13 @@ async def register_user(req: AuthRegisterRequest) -> AuthRegisterResponse:
 
 @router.post('/auth/login', response_model=AuthLoginResponse)
 async def login_user(req: AuthLoginRequest) -> AuthLoginResponse:
-    normalized_username = normalize_username(req.username)
-
-    if not db.pool_available():
-        raise _service_unavailable()
+    try:
+        normalized_username = normalize_username(req.username)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     user = await db.get_auth_user_by_username(normalized_username)
     if not user or not verify_password(req.password, user['password_hash']):
