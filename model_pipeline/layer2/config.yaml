@@ -11,7 +11,7 @@ data:
   train_csv: "http://129.114.25.143:30900/data/processed/train.csv"   # kept for reference
 
 layer1:
-  model_uri: "runs:/85b08fba7b6f4ad183702adad093b673/fasttext.bin"   # MLflow model artifact URI for layer 1 model
+  model_uri: "runs:/85b08fba7b6f4ad183702adad093b673/fasttext.bin"
   model_version: "fasttext-v1"
 
 layer2:

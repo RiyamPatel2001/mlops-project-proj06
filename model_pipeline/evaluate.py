@@ -46,6 +46,7 @@ from model_pipeline.layer2.build_store import (
 )
 from model_pipeline.layer2.embedder import Embedder
 from model_pipeline.layer2.matcher import get_top_k, majority_vote
+from training.utils import normalize_payee
 
 
 def parse_args() -> argparse.Namespace:
@@ -100,14 +101,14 @@ def predict_batch(
     min_history: int,
 ) -> pd.DataFrame:
     """Run predictions on df_test without mutating the store."""
-    payees = df_test["payee"].tolist()
+    payees = [normalize_payee(p) for p in df_test["payee"].tolist()]
 
     print(f"  Embedding {len(payees):,} payees in batch ...")
     embeddings = embedder.embed_batch(payees)
 
     records = []
     for i, row in enumerate(df_test.itertuples(index=False)):
-        labels, probs = layer1_model.predict(row.payee, k=1)
+        labels, probs = layer1_model.predict(normalize_payee(row.payee), k=1)
         l1_cat  = labels[0].replace("__label__", "").replace("_", " ")
         l1_conf = float(probs[0])
 

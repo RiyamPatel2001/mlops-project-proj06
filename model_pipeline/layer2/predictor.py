@@ -25,6 +25,7 @@ import numpy as np
 from model_pipeline.layer2.embedder import Embedder
 from model_pipeline.layer2 import user_store as store_module
 from model_pipeline.layer2.matcher import get_top_k, majority_vote
+from training.utils import normalize_payee
 
 
 class Predictor:
@@ -60,7 +61,7 @@ class Predictor:
 
     def _layer1_predict(self, payee: str):
         """Returns (category, confidence) from fastText."""
-        labels, probs = self.layer1_model.predict(payee, k=1)
+        labels, probs = self.layer1_model.predict(normalize_payee(payee), k=1)
         category = labels[0].replace("__label__", "").replace("_", " ")
         confidence = float(probs[0])
         return category, confidence
@@ -93,12 +94,14 @@ class Predictor:
                 "source": "layer1",
             }
             # Still add to store to accumulate history
-            embedding = self.embedder.embed(payee)
-            store_module.add_transaction(user_id, payee, embedding, l1_category)
+            norm_payee = normalize_payee(payee)
+            embedding = self.embedder.embed(norm_payee)
+            store_module.add_transaction(user_id, norm_payee, embedding, l1_category)
             return result
 
         # Step 3: Embed query
-        query_embedding = self.embedder.embed(payee)
+        norm_payee = normalize_payee(payee)
+        query_embedding = self.embedder.embed(norm_payee)
 
         # Step 4 & 5: Get top-k neighbors and majority vote
         user_data = store_module.get_user_store(user_id)
@@ -128,7 +131,7 @@ class Predictor:
         # Step 8: Update store synchronously (use ground truth label if available,
         # otherwise use the prediction we're returning)
         store_module.add_transaction(
-            user_id, payee, query_embedding, result["prediction_category"]
+            user_id, norm_payee, query_embedding, result["prediction_category"]
         )
 
         return result

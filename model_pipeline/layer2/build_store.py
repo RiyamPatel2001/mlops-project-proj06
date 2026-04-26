@@ -26,6 +26,7 @@ from minio import Minio
 from urllib.parse import urlparse
 
 from model_pipeline.layer2.embedder import Embedder
+from training.utils import normalize_payee
 
 EXTRA_COLS = ["newid", "diary_newid", "survey_source"]
 
@@ -79,7 +80,7 @@ def build_store(df: pd.DataFrame, embedder: Embedder) -> dict:
     Given a DataFrame with columns [user_id, payee, category],
     batch-embed all payees and build the per-user dictionary.
     """
-    payees = df["payee"].tolist()
+    payees = [normalize_payee(p) for p in df["payee"].tolist()]
     print(f"  Embedding {len(payees)} transactions...")
     embeddings = embedder.embed_batch(payees)  # (n, 768) unit-normalized
 
