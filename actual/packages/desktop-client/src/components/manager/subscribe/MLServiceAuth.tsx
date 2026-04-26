@@ -10,6 +10,11 @@ import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
+import { loadAllFiles } from '#budgetfiles/budgetfilesSlice';
+import { useNavigate } from '#hooks/useNavigate';
+import { useDispatch } from '#redux';
+import { loadUserData } from '#users/usersSlice';
+
 import {
   getStoredMLUsername,
   registerMLUser,
@@ -52,6 +57,8 @@ function AuthModeButton({
 export function MLServiceAuth() {
   const { t } = useTranslation();
   const { isNarrowWidth } = useResponsive();
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
   const [mode, setMode] = useState<AuthMode>('register');
   const [username, setUsername] = useState(() => getStoredMLUsername());
   const [password, setPassword] = useState('');
@@ -97,12 +104,11 @@ export function MLServiceAuth() {
 
     if (login.ok) {
       setPassword('');
-      setMessageTone('notice');
-      setMessage(
-        t('ML prediction service connected for {{username}}.', {
-          username: trimmedUsername,
-        }),
+      await dispatch(loadAllFiles());
+      dispatch(
+        loadUserData({ data: { offline: false, userName: trimmedUsername } }),
       );
+      void navigate('/', { replace: true });
     } else {
       setMessageTone('error');
       setMessage(t(login.message));
@@ -125,7 +131,7 @@ export function MLServiceAuth() {
           color: theme.pageText,
         }}
       >
-        <Trans>Set up ML predictions</Trans>
+        <Trans>Sign in to Actual Budget</Trans>
       </Text>
       <Text
         style={{
@@ -135,8 +141,8 @@ export function MLServiceAuth() {
         }}
       >
         <Trans>
-          Create or reuse your ML prediction account here. This is separate from
-          your Actual instance password.
+          Sign in with your account to open your budgets and continue to the
+          Actual Budget app.
         </Trans>
       </Text>
 
@@ -169,11 +175,11 @@ export function MLServiceAuth() {
       >
         {mode === 'register' ? (
           <Trans>
-            Choose a unique ML service username and password for transaction
-            predictions.
+            Create your Actual Budget account with a unique username and
+            password.
           </Trans>
         ) : (
-          <Trans>Use your existing ML service credentials.</Trans>
+          <Trans>Use your existing account credentials.</Trans>
         )}
       </Text>
 
@@ -184,7 +190,7 @@ export function MLServiceAuth() {
         }}
       >
         <BigInput
-          placeholder={t('ML service username')}
+          placeholder={t('Username')}
           value={username}
           onChangeValue={setUsername}
           style={{ width: '100%' }}
@@ -197,7 +203,7 @@ export function MLServiceAuth() {
           }}
         >
           <BigInput
-            placeholder={t('ML service password')}
+            placeholder={t('Password')}
             type="password"
             value={password}
             onChangeValue={setPassword}
