@@ -1,9 +1,9 @@
 mlflow:
-  tracking_uri: "http://129.114.25.143:30500 "
+  tracking_uri: "http://129.114.25.143:30500"
   experiment_name: "layer2-evaluation"
 
 minio:
-  endpoint: "http://minio.mlops.svc.cluster.local:9000"
+  endpoint: "http://129.114.25.143:30900"
   bucket: "data"
   object: "processed/train.csv"
 
@@ -28,4 +28,4 @@ layer3:
   store_path: "http://129.114.25.143:30900/data/user_store/user_store.pkl"   # PVC mounted at /app/artifacts
 
 postgres:
-  dsn: "postgresql://mlops_user:mlops_pass@postgres.mlops.svc.cluster.local:5432/mlops"
+  dsn: "postgresql://mlops_user:mlops_pass@10.43.98.71:5432/mlops"
