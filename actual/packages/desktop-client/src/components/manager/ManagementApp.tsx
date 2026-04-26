@@ -33,7 +33,6 @@ import { Bootstrap } from './subscribe/Bootstrap';
 import { ChangePassword } from './subscribe/ChangePassword';
 import { Error } from './subscribe/Error';
 import { Login } from './subscribe/Login';
-import { OpenIdCallback } from './subscribe/OpenIdCallback';
 import { WelcomeScreen } from './WelcomeScreen';
 
 function Version() {
@@ -190,21 +189,9 @@ export function ManagementApp() {
           ) : (
             <Routes>
               <Route path="/login" element={<Login />} />
-              <Route path="/openid-cb" element={<OpenIdCallback />} />
               <Route path="/error" element={<Error />} />
               <Route path="/config-server" element={<ConfigServer />} />
               <Route path="/bootstrap" element={<Bootstrap />} />
-              {multiuserEnabled && (
-                <Route
-                  path="/userdirectory"
-                  element={
-                    <ProtectedRoute
-                      permission={Permissions.ADMINISTRATOR}
-                      element={<UserDirectoryPage />}
-                    />
-                  }
-                />
-              )}
 
               {/* Redirect all other pages to this route */}
               <Route path="/*" element={<Navigate to="/bootstrap" replace />} />

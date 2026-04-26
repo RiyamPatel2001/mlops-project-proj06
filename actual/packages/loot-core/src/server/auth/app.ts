@@ -5,36 +5,31 @@ import * as encryption from '#server/encryption';
 import { PostError } from '#server/errors';
 import { get, post } from '#server/post';
 import { getServer, isValidBaseURL } from '#server/server-config';
-import type { OpenIdConfig } from '#types/models';
 
 export type AuthHandlers = {
   'get-did-bootstrap': typeof didBootstrap;
   'subscribe-needs-bootstrap': typeof needsBootstrap;
   'subscribe-bootstrap': typeof bootstrap;
+  'subscribe-register': typeof register;
   'subscribe-get-login-methods': typeof getLoginMethods;
   'subscribe-get-user': typeof getUser;
   'subscribe-change-password': typeof changePassword;
   'subscribe-sign-in': typeof signIn;
   'subscribe-sign-out': typeof signOut;
   'subscribe-set-token': typeof setToken;
-  'enable-openid': typeof enableOpenId;
-  'get-openid-config': typeof getOpenIdConfig;
-  'enable-password': typeof enablePassword;
 };
 
 export const app = createApp<AuthHandlers>();
 app.method('get-did-bootstrap', didBootstrap);
 app.method('subscribe-needs-bootstrap', needsBootstrap);
 app.method('subscribe-bootstrap', bootstrap);
+app.method('subscribe-register', register);
 app.method('subscribe-get-login-methods', getLoginMethods);
 app.method('subscribe-get-user', getUser);
 app.method('subscribe-change-password', changePassword);
 app.method('subscribe-sign-in', signIn);
 app.method('subscribe-sign-out', signOut);
 app.method('subscribe-set-token', setToken);
-app.method('enable-openid', enableOpenId);
-app.method('get-openid-config', getOpenIdConfig);
-app.method('enable-password', enablePassword);
 
 async function didBootstrap() {
   return Boolean(await asyncStorage.getItem('did-bootstrap'));
@@ -67,7 +62,7 @@ async function needsBootstrap({ url }: { url?: string } = {}) {
     status: 'ok';
     data: {
       bootstrapped: boolean;
-      loginMethod: 'password' | 'openid' | string;
+      loginMethod: 'password' | string;
       availableLoginMethods: Array<{
         method: string;
         displayName: string;
@@ -94,15 +89,19 @@ async function needsBootstrap({ url }: { url?: string } = {}) {
 }
 
 async function bootstrap(loginConfig: {
+  userName?: string;
+  displayName?: string;
   password?: string;
-  openId?: OpenIdConfig;
 }) {
+  let res: {
+    token?: string;
+  };
   try {
     const serverConfig = getServer();
     if (!serverConfig) {
       throw new Error('No sync server configured.');
     }
-    await post(serverConfig.SIGNUP_SERVER + '/bootstrap', loginConfig);
+    res = await post(serverConfig.SIGNUP_SERVER + '/bootstrap', loginConfig);
   } catch (err) {
     if (err instanceof PostError) {
       return {
@@ -112,6 +111,43 @@ async function bootstrap(loginConfig: {
 
     throw err;
   }
+
+  if (res?.token) {
+    await asyncStorage.setItem('user-token', res.token);
+  }
+  return {};
+}
+
+async function register(loginConfig: {
+  userName: string;
+  displayName?: string;
+  password: string;
+}) {
+  let res: {
+    token?: string;
+  };
+
+  try {
+    const serverConfig = getServer();
+    if (!serverConfig) {
+      throw new Error('No sync server configured.');
+    }
+    res = await post(serverConfig.SIGNUP_SERVER + '/register', loginConfig);
+  } catch (err) {
+    if (err instanceof PostError) {
+      return {
+        error: err.reason || 'network-failure',
+      };
+    }
+
+    throw err;
+  }
+
+  if (!res.token) {
+    throw new Error('register: User token not set');
+  }
+
+  await asyncStorage.setItem('user-token', res.token);
   return {};
 }
 
@@ -233,16 +269,11 @@ async function changePassword({ password }: { password: string }) {
 }
 
 async function signIn(
-  loginInfo:
-    | {
-        userName?: string;
-        password: string;
-        loginMethod?: string;
-      }
-    | {
-        returnUrl: string;
-        loginMethod?: 'openid';
-      },
+  loginInfo: {
+    userName?: string;
+    password: string;
+    loginMethod?: string;
+  },
 ) {
   if (
     typeof loginInfo.loginMethod !== 'string' ||
@@ -296,93 +327,4 @@ async function signOut() {
 
 async function setToken({ token }: { token: string }) {
   await asyncStorage.setItem('user-token', token);
-}
-
-async function enableOpenId(openIdConfig: { openId: OpenIdConfig }) {
-  try {
-    const userToken = await asyncStorage.getItem('user-token');
-
-    if (!userToken) {
-      return { error: 'unauthorized' };
-    }
-
-    const serverConfig = getServer();
-    if (!serverConfig) {
-      throw new Error('No sync server configured.');
-    }
-
-    await post(serverConfig.BASE_SERVER + '/openid/enable', openIdConfig, {
-      'X-ACTUAL-TOKEN': userToken,
-    });
-  } catch (err) {
-    if (err instanceof PostError) {
-      return {
-        error: err.reason || 'network-failure',
-      };
-    }
-
-    throw err;
-  }
-  return {};
-}
-
-async function getOpenIdConfig({ password }: { password: string }) {
-  try {
-    const userToken = await asyncStorage.getItem('user-token');
-
-    const serverConfig = getServer();
-    if (!serverConfig) {
-      throw new Error('No sync server configured.');
-    }
-
-    const res = await post(
-      serverConfig.BASE_SERVER + '/openid/config',
-      { password },
-      {
-        'X-ACTUAL-TOKEN': userToken,
-      },
-    );
-
-    if (res) {
-      return res as { openId: OpenIdConfig };
-    }
-
-    return null;
-  } catch (err) {
-    if (err instanceof PostError) {
-      return {
-        error: err.reason || 'network-failure',
-      };
-    }
-
-    throw err;
-  }
-}
-
-async function enablePassword(passwordConfig: { password: string }) {
-  try {
-    const userToken = await asyncStorage.getItem('user-token');
-
-    if (!userToken) {
-      return { error: 'unauthorized' };
-    }
-
-    const serverConfig = getServer();
-    if (!serverConfig) {
-      throw new Error('No sync server configured.');
-    }
-
-    await post(serverConfig.BASE_SERVER + '/openid/disable', passwordConfig, {
-      'X-ACTUAL-TOKEN': userToken,
-    });
-  } catch (err) {
-    if (err instanceof PostError) {
-      return {
-        error: err.reason || 'network-failure',
-      };
-    }
-
-    throw err;
-  }
-  return {};
 }

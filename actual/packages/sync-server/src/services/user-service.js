@@ -11,6 +11,14 @@ export function getUserByUsername(userName) {
   return id || null;
 }
 
+export function getNamedUserCount() {
+  const { total } =
+    getAccountDb().first(
+      `SELECT count(*) as total FROM users WHERE trim(ifnull(user_name, '')) <> ''`,
+    ) || {};
+  return total || 0;
+}
+
 export function getUserById(userId) {
   if (!userId) {
     return null;
@@ -66,10 +74,17 @@ export function getAllUsers() {
   );
 }
 
-export function insertUser(userId, userName, displayName, enabled, role) {
+export function insertUser(
+  userId,
+  userName,
+  displayName,
+  enabled,
+  role,
+  owner = 0,
+) {
   getAccountDb().mutate(
-    'INSERT INTO users (id, user_name, display_name, enabled, owner, role) VALUES (?, ?, ?, ?, 0, ?)',
-      [userId, userName, displayName, enabled, role],
+    'INSERT INTO users (id, user_name, display_name, enabled, owner, role) VALUES (?, ?, ?, ?, ?, ?)',
+    [userId, userName, displayName, enabled, owner, role],
   );
 }
 
