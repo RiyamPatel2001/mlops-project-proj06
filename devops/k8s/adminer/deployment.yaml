@@ -17,6 +17,16 @@ spec:
         app: adminer
         project: proj06
     spec:
+      initContainers:
+        - name: prepare-php-sessions
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - mkdir -p /sessions && chmod 1733 /sessions
+          volumeMounts:
+            - name: php-sessions
+              mountPath: /sessions
       containers:
         - name: adminer
           image: adminer:4.8.1-standalone
@@ -26,6 +36,9 @@ spec:
           env:
             - name: ADMINER_DEFAULT_SERVER
               value: postgres
+          volumeMounts:
+            - name: php-sessions
+              mountPath: /var/lib/php/sessions
           resources:
             requests:
               cpu: "50m"
@@ -33,3 +46,6 @@ spec:
             limits:
               cpu: "100m"
               memory: "128Mi"
+      volumes:
+        - name: php-sessions
+          emptyDir: {}

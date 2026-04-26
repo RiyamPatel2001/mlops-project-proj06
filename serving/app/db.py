@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import logging
+import sqlite3
+import threading
 from datetime import datetime
 from typing import Any, Optional
 
@@ -13,6 +16,8 @@ from app.config import POSTGRES_DSN
 logger = logging.getLogger(__name__)
 
 _pool: Optional[asyncpg.Pool] = None
+_auth_sqlite_conn: Optional[sqlite3.Connection] = None
+_auth_sqlite_lock = threading.Lock()
 
 
 # ── Pool lifecycle ───────────────────────────────────────────────────────────
@@ -23,15 +28,18 @@ async def init_pool() -> None:
         _pool = await asyncpg.create_pool(dsn=POSTGRES_DSN, min_size=2, max_size=10)
         logger.info("Postgres pool created (%s)", POSTGRES_DSN.split("@")[-1])
     except Exception:
-        logger.warning("Could not connect to Postgres — running in mock-db mode")
+        logger.exception("Could not connect to Postgres — auth will fall back to local SQLite")
         _pool = None
 
 
 async def close_pool() -> None:
-    global _pool
+    global _pool, _auth_sqlite_conn
     if _pool:
         await _pool.close()
         _pool = None
+    if _auth_sqlite_conn:
+        _auth_sqlite_conn.close()
+        _auth_sqlite_conn = None
 
 
 def pool_available() -> bool:
@@ -61,6 +69,31 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 """
 
 _AUTH_SESSIONS_USER_IDX_DDL = """
+CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx
+    ON auth_sessions(user_id);
+"""
+
+_SQLITE_AUTH_USERS_DDL = """
+CREATE TABLE IF NOT EXISTS auth_users (
+    user_id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    username_normalized TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+_SQLITE_AUTH_SESSIONS_DDL = """
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL REFERENCES auth_users(user_id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    expires_at TEXT NOT NULL
+);
+"""
+
+_SQLITE_AUTH_SESSIONS_USER_IDX_DDL = """
 CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx
     ON auth_sessions(user_id);
 """
@@ -123,8 +156,46 @@ CREATE INDEX IF NOT EXISTS idx_layer3_suggestions_user_status
 """
 
 
+def _default_auth_sqlite_path() -> str:
+    artifacts_dir = "/app/artifacts"
+    if os.path.isdir(artifacts_dir):
+        return os.path.join(artifacts_dir, "serving-auth.sqlite3")
+    return "/tmp/serving-auth.sqlite3"
+
+
+def _get_auth_sqlite_conn() -> sqlite3.Connection:
+    global _auth_sqlite_conn
+
+    if _auth_sqlite_conn is None:
+        path = os.getenv("AUTH_SQLITE_PATH", _default_auth_sqlite_path())
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        conn = sqlite3.connect(path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        _auth_sqlite_conn = conn
+        logger.info("Using SQLite auth store at %s", path)
+
+    return _auth_sqlite_conn
+
+
+def _ensure_auth_sqlite_tables() -> None:
+    conn = _get_auth_sqlite_conn()
+    with _auth_sqlite_lock:
+        conn.execute(_SQLITE_AUTH_USERS_DDL)
+        conn.execute(_SQLITE_AUTH_SESSIONS_DDL)
+        conn.execute(_SQLITE_AUTH_SESSIONS_USER_IDX_DDL)
+        conn.commit()
+
+
+def _parse_sqlite_datetime(value: str | datetime | None) -> datetime | None:
+    if value is None or isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value)
+
+
 async def ensure_tables() -> None:
     if not _pool:
+        _ensure_auth_sqlite_tables()
         return
     async with _pool.acquire() as conn:
         await conn.execute(_AUTH_USERS_DDL)
@@ -147,7 +218,22 @@ async def create_auth_user(
     password_hash: str,
 ) -> dict[str, Any] | None:
     if not _pool:
-        return None
+        _ensure_auth_sqlite_tables()
+        conn = _get_auth_sqlite_conn()
+        with _auth_sqlite_lock:
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO auth_users
+                        (user_id, username, username_normalized, password_hash)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (user_id, username, username_normalized, password_hash),
+                )
+                conn.commit()
+            except sqlite3.IntegrityError:
+                return None
+        return {"user_id": user_id, "username": username}
 
     async with _pool.acquire() as conn:
         try:
@@ -173,7 +259,18 @@ async def get_auth_user_by_username(
     username_normalized: str,
 ) -> dict[str, Any] | None:
     if not _pool:
-        return None
+        _ensure_auth_sqlite_tables()
+        conn = _get_auth_sqlite_conn()
+        with _auth_sqlite_lock:
+            rec = conn.execute(
+                """
+                SELECT user_id, username, username_normalized, password_hash
+                FROM auth_users
+                WHERE username_normalized = ?
+                """,
+                (username_normalized,),
+            ).fetchone()
+        return dict(rec) if rec else None
 
     async with _pool.acquire() as conn:
         rec = await conn.fetchrow(
@@ -193,6 +290,17 @@ async def create_auth_session(
     expires_at: datetime,
 ) -> None:
     if not _pool:
+        _ensure_auth_sqlite_tables()
+        conn = _get_auth_sqlite_conn()
+        with _auth_sqlite_lock:
+            conn.execute(
+                """
+                INSERT INTO auth_sessions (user_id, token_hash, expires_at)
+                VALUES (?, ?, ?)
+                """,
+                (user_id, token_hash, expires_at.isoformat()),
+            )
+            conn.commit()
         return
 
     async with _pool.acquire() as conn:
@@ -211,7 +319,34 @@ async def get_auth_user_for_session(
     token_hash: str,
 ) -> dict[str, Any] | None:
     if not _pool:
-        return None
+        _ensure_auth_sqlite_tables()
+        conn = _get_auth_sqlite_conn()
+        with _auth_sqlite_lock:
+            rec = conn.execute(
+                """
+                SELECT auth_users.user_id, auth_users.username, auth_sessions.expires_at
+                FROM auth_sessions
+                JOIN auth_users ON auth_users.user_id = auth_sessions.user_id
+                WHERE auth_sessions.token_hash = ?
+                """,
+                (token_hash,),
+            ).fetchone()
+            if not rec:
+                return None
+
+            expires_at = _parse_sqlite_datetime(rec["expires_at"])
+            if expires_at is not None and expires_at <= datetime.utcnow():
+                conn.execute(
+                    "DELETE FROM auth_sessions WHERE token_hash = ?",
+                    (token_hash,),
+                )
+                conn.commit()
+                return None
+
+        return {
+            "user_id": rec["user_id"],
+            "username": rec["username"],
+        }
 
     async with _pool.acquire() as conn:
         rec = await conn.fetchrow(
@@ -242,6 +377,14 @@ async def get_auth_user_for_session(
 
 async def delete_auth_session(token_hash: str) -> None:
     if not _pool:
+        _ensure_auth_sqlite_tables()
+        conn = _get_auth_sqlite_conn()
+        with _auth_sqlite_lock:
+            conn.execute(
+                "DELETE FROM auth_sessions WHERE token_hash = ?",
+                (token_hash,),
+            )
+            conn.commit()
         return
 
     async with _pool.acquire() as conn:

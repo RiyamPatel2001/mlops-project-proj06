@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 
-import { getAccountDb } from '../src/account-db';
+import { getAccountDb } from '../src/account-db.js';
 
 export const up = async function () {
   const accountDb = getAccountDb();

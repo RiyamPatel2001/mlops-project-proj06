@@ -9,8 +9,12 @@ import {
   closeAndDownloadBudget,
   uploadBudget,
 } from './budgetfiles/budgetfilesSlice';
+import { hasStoredMLAuthToken } from './ml/mlService';
 import { pushModal } from './modals/modalsSlice';
-import { addNotification } from './notifications/notificationsSlice';
+import {
+  addNotification,
+  removeNotification,
+} from './notifications/notificationsSlice';
 import type { Notification } from './notifications/notificationsSlice';
 import { payeeQueries } from './payees';
 import { loadPrefs } from './prefs/prefsSlice';
@@ -18,9 +22,19 @@ import type { AppStore } from './redux/store';
 import { signOut } from './users/usersSlice';
 
 export function listenForSyncEvent(store: AppStore, queryClient: QueryClient) {
+  function isMLOnlySession() {
+    const userData = store.getState().user.data;
+    return userData?.userId == null && hasStoredMLAuthToken();
+  }
+
   // TODO: Should this run on mobile too?
   const unlistenUnauthorized = listen('sync-event', async ({ type }) => {
     if (type === 'unauthorized') {
+      if (isMLOnlySession()) {
+        store.dispatch(removeNotification({ id: 'auth-issue' }));
+        return;
+      }
+
       store.dispatch(
         addNotification({
           notification: {

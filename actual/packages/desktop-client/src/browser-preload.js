@@ -204,6 +204,19 @@ class WorkerBridge {
 }
 
 function createBackendWorker() {
+  const sharedArrayBufferOverrideEnabled = (() => {
+    if (window.SharedArrayBuffer) {
+      localStorage.removeItem('SharedArrayBufferOverride');
+      return localStorage.getItem('SharedArrayBufferOverride');
+    }
+
+    if (!window.isSecureContext) {
+      localStorage.setItem('SharedArrayBufferOverride', 'true');
+    }
+
+    return localStorage.getItem('SharedArrayBufferOverride');
+  })();
+
   // Use SharedWorker as a coordinator for multi-tab, multi-budget support.
   // Each budget gets its own leader tab running a dedicated Worker. All other
   // tabs on the same budget are followers — their messages are routed through
@@ -224,19 +237,13 @@ function createBackendWorker() {
       // messages (especially 'connect') are queued until connectWorker()
       // sets onmessage, which implicitly starts the port via the bridge.
 
-      if (window.SharedArrayBuffer) {
-        localStorage.removeItem('SharedArrayBufferOverride');
-      }
-
       sharedPort.postMessage({
         type: 'init',
         version: ACTUAL_VERSION,
         isDev: IS_DEV,
         publicUrl: process.env.PUBLIC_URL,
         hash: process.env.REACT_APP_BACKEND_WORKER_HASH,
-        isSharedArrayBufferOverrideEnabled: localStorage.getItem(
-          'SharedArrayBufferOverride',
-        ),
+        isSharedArrayBufferOverrideEnabled: sharedArrayBufferOverrideEnabled,
       });
 
       window.addEventListener('beforeunload', () => {
@@ -254,10 +261,6 @@ function createBackendWorker() {
   worker = new Worker(backendWorkerUrl);
   initSQLBackend(worker);
 
-  if (window.SharedArrayBuffer) {
-    localStorage.removeItem('SharedArrayBufferOverride');
-  }
-
   worker.postMessage({
     type: 'init',
     version: ACTUAL_VERSION,
@@ -265,9 +268,7 @@ function createBackendWorker() {
     publicUrl: process.env.PUBLIC_URL,
     hash: process.env.REACT_APP_BACKEND_WORKER_HASH,
     hasSharedArrayBuffer: !!window.SharedArrayBuffer,
-    isSharedArrayBufferOverrideEnabled: localStorage.getItem(
-      'SharedArrayBufferOverride',
-    ),
+    isSharedArrayBufferOverrideEnabled: sharedArrayBufferOverrideEnabled,
   });
 }
 

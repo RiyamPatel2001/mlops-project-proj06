@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   classifyTransaction,
   classifyTransactions,
+  getStoredMLUsername,
+  registerMLUser,
+  signInMLUser,
   tagExample,
 } from './mlService';
 
@@ -145,6 +148,82 @@ describe('mlService', () => {
         custom_category: 'Personal Groceries',
       }),
     ).resolves.toEqual({ ok: true });
+  });
+
+  it('stores the ML session after a successful sign-in', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: 'ok',
+        user_id: 'service-user-1',
+        username: 'jayraj',
+        token: 'fresh-token',
+      }),
+    } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(signInMLUser('jayraj', 'secret')).resolves.toEqual({
+      ok: true,
+      message: '',
+    });
+    expect(window.localStorage.setItem).toHaveBeenCalledWith(
+      'ml-serving-auth-token',
+      'fresh-token',
+    );
+    expect(getStoredMLUsername()).toBe('jayraj');
+  });
+
+  it('surfaces username conflicts during ML registration', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({}),
+    } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(registerMLUser('jayraj', 'secret')).resolves.toEqual({
+      ok: false,
+      message: 'That username is already taken. Choose a different one.',
+    });
+  });
+
+  it('surfaces auth store outages during ML registration', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({}),
+    } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(registerMLUser('jayraj', 'secret')).resolves.toEqual({
+      ok: false,
+      message: 'The ML service auth store is temporarily unavailable.',
+    });
+  });
+
+  it('surfaces ML service network failures during registration', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(registerMLUser('jayraj', 'secret')).resolves.toEqual({
+      ok: false,
+      message: 'Unable to reach the ML service right now. Try again shortly.',
+    });
+  });
+
+  it('surfaces incorrect credentials during ML sign-in', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ detail: 'invalid-credentials' }),
+    } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(signInMLUser('jayraj', 'wrong-password')).resolves.toEqual({
+      ok: false,
+      message: 'Incorrect username or password.',
+    });
   });
 
   it('reports network failures when tagged examples cannot reach the service', async () => {
