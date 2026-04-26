@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedding-service
+  namespace: mlops
+  labels:
+    app: embedding-service
+    project: proj06
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: embedding-service
+  template:
+    metadata:
+      labels:
+        app: embedding-service
+        project: proj06
+    spec:
+      containers:
+        - name: embedding-service
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/embedding-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8001
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 90
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi

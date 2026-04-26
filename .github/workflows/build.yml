@@ -120,6 +120,23 @@ jobs:
           push: true
           tags: ghcr.io/${{ env.REPO }}/layer2-store:latest
 
+
+  build-embedding-service:
+    name: Model Pipeline (embedding service)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: model_pipeline/embedding_service/Dockerfile
+          push: true
+          tags: ghcr.io/${{ env.REPO }}/embedding-service:latest
   build-actualbudget:
     name: ActualBudget (actual-custom)
     runs-on: ubuntu-latest
