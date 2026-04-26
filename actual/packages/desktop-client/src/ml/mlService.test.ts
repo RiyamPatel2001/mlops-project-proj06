@@ -1,58 +1,40 @@
+import * as connection from '@actual-app/core/platform/client/connection';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   classifyTransaction,
   classifyTransactions,
-  getStoredMLUsername,
-  registerMLUser,
-  signInMLUser,
   tagExample,
 } from './mlService';
 
 describe('mlService', () => {
   beforeEach(() => {
-    const store = new Map<string, string>();
-    const storage = {
-      getItem: vi.fn((key: string) => store.get(key) ?? null),
-      setItem: vi.fn((key: string, value: string) => {
-        store.set(key, value);
-      }),
-      removeItem: vi.fn((key: string) => {
-        store.delete(key);
-      }),
-      clear: vi.fn(() => {
-        store.clear();
-      }),
-    };
-
-    Object.defineProperty(window, 'localStorage', {
-      value: storage,
-      configurable: true,
+    vi.spyOn(connection, 'send').mockResolvedValue({
+      status: 200,
+      data: null,
+      detail: null,
+      error: null,
     });
-    vi.stubGlobal('fetch', vi.fn());
-    window.localStorage.setItem('ml-serving-auth-token', 'test-token');
-    window.localStorage.setItem('ml-serving-username', 'test-user');
   });
 
   afterEach(() => {
-    window.localStorage.clear();
-    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
   it('includes bulk routing metadata on single classify requests', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
+    vi.spyOn(connection, 'send').mockResolvedValue({
+      status: 200,
+      data: {
         transaction_id: 'txn-1',
-        user_id: 'service-user-1',
+        user_id: 'actual-user-1',
         prediction_category: 'Groceries',
         confidence: 0.92,
         source: 'layer1',
         model_version: 'fasttext-v1',
-      }),
-    } as Response);
-    vi.stubGlobal('fetch', fetchMock);
+      },
+      detail: null,
+      error: null,
+    });
 
     await classifyTransaction({
       account: 'acct-1',
@@ -64,43 +46,46 @@ describe('mlService', () => {
       batchId: 'import-123',
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, options] = fetchMock.mock.calls[0];
-    expect(JSON.parse(String(options?.body))).toMatchObject({
+    expect(connection.send).toHaveBeenCalledTimes(1);
+    const [, args] = vi.mocked(connection.send).mock.calls[0];
+    expect(args).toMatchObject({
+      path: '/classify',
+    });
+    expect((args as { body: Record<string, unknown> }).body).toMatchObject({
       request_mode: 'bulk',
       batch_id: 'import-123',
     });
-    expect(JSON.parse(String(options?.body))).not.toHaveProperty('user_id');
-    expect(options?.headers).toMatchObject({
-      Authorization: 'Bearer test-token',
-    });
+    expect((args as { body: Record<string, unknown> }).body).not.toHaveProperty(
+      'user_id',
+    );
   });
 
   it('caps in-flight classify requests for bulk imports', async () => {
     let active = 0;
     let maxActive = 0;
 
-    const fetchMock = vi.fn().mockImplementation(async (_url, options) => {
+    vi.spyOn(connection, 'send').mockImplementation(async (_name, args) => {
       active += 1;
       maxActive = Math.max(maxActive, active);
 
-      const body = JSON.parse(String(options?.body));
+      const body = (args as { body: Record<string, string> }).body;
       await new Promise(resolve => setTimeout(resolve, 10));
 
       active -= 1;
       return {
-        ok: true,
-        json: async () => ({
+        status: 200,
+        data: {
           transaction_id: body.transaction_id,
-          user_id: 'service-user-1',
+          user_id: 'actual-user-1',
           prediction_category: 'Groceries',
           confidence: 0.88,
           source: 'layer1',
           model_version: 'fasttext-v1',
-        }),
-      } as Response;
+        },
+        detail: null,
+        error: null,
+      };
     });
-    vi.stubGlobal('fetch', fetchMock);
 
     const results = await classifyTransactions(
       Array.from({ length: 5 }, (_, index) => ({
@@ -119,28 +104,27 @@ describe('mlService', () => {
 
     expect(results).toHaveLength(5);
     expect(maxActive).toBeLessThanOrEqual(2);
-    for (const [, options] of fetchMock.mock.calls) {
-      expect(JSON.parse(String(options?.body))).toMatchObject({
+    for (const [, args] of vi.mocked(connection.send).mock.calls) {
+      expect((args as { body: Record<string, unknown> }).body).toMatchObject({
         request_mode: 'bulk',
         batch_id: 'import-456',
       });
-      expect(JSON.parse(String(options?.body))).not.toHaveProperty('user_id');
-      expect(options?.headers).toMatchObject({
-        Authorization: 'Bearer test-token',
-      });
+      expect(
+        (args as { body: Record<string, unknown> }).body,
+      ).not.toHaveProperty('user_id');
     }
   });
 
   it('returns a structured success result for tagged examples', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
+    vi.spyOn(connection, 'send').mockResolvedValue({
       status: 200,
-      json: async () => ({
+      data: {
         status: 'ok',
         id: 7,
-      }),
-    } as Response);
-    vi.stubGlobal('fetch', fetchMock);
+      },
+      detail: null,
+      error: null,
+    });
 
     await expect(
       tagExample({
@@ -150,85 +134,13 @@ describe('mlService', () => {
     ).resolves.toEqual({ ok: true });
   });
 
-  it('stores the ML session after a successful sign-in', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        status: 'ok',
-        user_id: 'service-user-1',
-        username: 'jayraj',
-        token: 'fresh-token',
-      }),
-    } as Response);
-    vi.stubGlobal('fetch', fetchMock);
-
-    await expect(signInMLUser('jayraj', 'secret')).resolves.toEqual({
-      ok: true,
-      message: '',
-    });
-    expect(window.localStorage.setItem).toHaveBeenCalledWith(
-      'ml-serving-auth-token',
-      'fresh-token',
-    );
-    expect(getStoredMLUsername()).toBe('jayraj');
-  });
-
-  it('surfaces username conflicts during ML registration', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 409,
-      json: async () => ({}),
-    } as Response);
-    vi.stubGlobal('fetch', fetchMock);
-
-    await expect(registerMLUser('jayraj', 'secret')).resolves.toEqual({
-      ok: false,
-      message: 'That username is already taken. Choose a different one.',
-    });
-  });
-
-  it('surfaces auth store outages during ML registration', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 503,
-      json: async () => ({}),
-    } as Response);
-    vi.stubGlobal('fetch', fetchMock);
-
-    await expect(registerMLUser('jayraj', 'secret')).resolves.toEqual({
-      ok: false,
-      message: 'The ML service auth store is temporarily unavailable.',
-    });
-  });
-
-  it('surfaces ML service network failures during registration', async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
-    vi.stubGlobal('fetch', fetchMock);
-
-    await expect(registerMLUser('jayraj', 'secret')).resolves.toEqual({
-      ok: false,
-      message: 'Unable to reach the ML service right now. Try again shortly.',
-    });
-  });
-
-  it('surfaces incorrect credentials during ML sign-in', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 401,
-      json: async () => ({ detail: 'invalid-credentials' }),
-    } as Response);
-    vi.stubGlobal('fetch', fetchMock);
-
-    await expect(signInMLUser('jayraj', 'wrong-password')).resolves.toEqual({
-      ok: false,
-      message: 'Incorrect username or password.',
-    });
-  });
-
   it('reports network failures when tagged examples cannot reach the service', async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
-    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(connection, 'send').mockResolvedValue({
+      status: 0,
+      data: null,
+      detail: null,
+      error: 'network',
+    });
 
     await expect(
       tagExample({
@@ -239,12 +151,12 @@ describe('mlService', () => {
   });
 
   it('reports server failures when tagged examples are rejected', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
+    vi.spyOn(connection, 'send').mockResolvedValue({
       status: 500,
-      json: async () => ({}),
-    } as Response);
-    vi.stubGlobal('fetch', fetchMock);
+      data: null,
+      detail: null,
+      error: null,
+    });
 
     await expect(
       tagExample({

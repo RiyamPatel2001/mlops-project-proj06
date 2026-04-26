@@ -85,6 +85,8 @@ spec:
                   key: secretkey
             - name: MLFLOW_ARTIFACT_CACHE_DIR
               value: "/app/models/artifact_cache"
+            - name: ACTUAL_ML_SHARED_SECRET
+              value: "njk-YsFKyseocyxq_rldJVMYrXPe2YEE4f86vSSF-5k"
           resources:
             requests:
               cpu: "200m"

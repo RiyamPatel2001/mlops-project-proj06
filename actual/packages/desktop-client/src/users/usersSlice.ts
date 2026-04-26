@@ -3,9 +3,6 @@ import type { Handlers } from '@actual-app/core/types/handlers';
 import { createSlice } from '@reduxjs/toolkit';
 import type { PayloadAction } from '@reduxjs/toolkit';
 
-import {
-  clearMLAuthSession,
-} from '../ml/mlService';
 import { resetApp } from '#app/appSlice';
 import { closeBudget, loadAllFiles } from '#budgetfiles/budgetfilesSlice';
 import { loadGlobalPrefs } from '#prefs/prefsSlice';
@@ -49,7 +46,6 @@ export const signOut = createAppAsyncThunk(
   `${sliceName}/signOut`,
   async (_, { dispatch }) => {
     await send('subscribe-sign-out');
-    clearMLAuthSession();
 
     void dispatch(getUserData());
     void dispatch(loadGlobalPrefs());

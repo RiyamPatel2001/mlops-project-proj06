@@ -39,6 +39,8 @@ spec:
           env:
             - name: ACTUAL_UPLOAD_FILE_SYNC_ENABLED
               value: "false"
+            - name: ACTUAL_ML_SHARED_SECRET
+              value: "njk-YsFKyseocyxq_rldJVMYrXPe2YEE4f86vSSF-5k"
           resources:
             requests:
               cpu: "250m"
