@@ -27,6 +27,7 @@ import { app as notesApp } from './notes/app';
 import { app as payeesApp } from './payees/app';
 import { get } from './post';
 import { app as preferencesApp } from './preferences/app';
+import { app as mlApp } from './ml/app';
 import * as prefs from './prefs';
 import { app as reportsApp } from './reports/app';
 import { app as rulesApp } from './rules/app';
@@ -138,6 +139,7 @@ app.combine(
   reportsApp,
   rulesApp,
   adminApp,
+  mlApp,
   transactionsApp,
   accountsApp,
   payeesApp,

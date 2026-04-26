@@ -1,8 +1,16 @@
 import express from 'express';
+import crypto from 'node:crypto';
 
+import { getUserInfo } from './account-db';
+import { validateSession } from './util/validate-user';
 import { requestLoggerMiddleware } from './util/middlewares';
 
 const app = express();
+
+const ML_PROXY_USER_ID_HEADER = 'x-actual-user-id';
+const ML_PROXY_USERNAME_HEADER = 'x-actual-username';
+const ML_PROXY_TIMESTAMP_HEADER = 'x-actual-auth-timestamp';
+const ML_PROXY_SIGNATURE_HEADER = 'x-actual-auth-signature';
 
 app.use(express.json());
 app.use(requestLoggerMiddleware);
@@ -47,10 +55,86 @@ function applyProxyResponseHeaders(res, response) {
   });
 }
 
+function getSharedSecret() {
+  return process.env.ACTUAL_ML_SHARED_SECRET || '';
+}
+
+function buildSignaturePayload({
+  userId,
+  username,
+  method,
+  path,
+  query,
+  timestamp,
+}) {
+  return [userId, username, method.toUpperCase(), path, query, timestamp].join(
+    '\n',
+  );
+}
+
+function buildSignedIdentity(req, session) {
+  const user = getUserInfo(session.user_id);
+  if (!user) {
+    return { error: 'user-not-found' };
+  }
+
+  const secret = getSharedSecret();
+  if (!secret) {
+    return { error: 'missing-shared-secret' };
+  }
+
+  const url = new URL(req.url, 'http://actual.local');
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const username = user.user_name || user.display_name || session.user_id;
+  const payload = buildSignaturePayload({
+    userId: session.user_id,
+    username,
+    method: req.method,
+    path: url.pathname,
+    query: url.searchParams.toString(),
+    timestamp,
+  });
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex');
+
+  return {
+    headers: {
+      [ML_PROXY_USER_ID_HEADER]: session.user_id,
+      [ML_PROXY_USERNAME_HEADER]: username,
+      [ML_PROXY_TIMESTAMP_HEADER]: timestamp,
+      [ML_PROXY_SIGNATURE_HEADER]: signature,
+    },
+  };
+}
+
 app.use('/', async (req, res) => {
+  const session = validateSession(req, res);
+  if (!session) {
+    return;
+  }
+
+  const signedIdentity = buildSignedIdentity(req, session);
+  if ('error' in signedIdentity) {
+    res.status(signedIdentity.error === 'user-not-found' ? 401 : 503).json({
+      error:
+        signedIdentity.error === 'user-not-found'
+          ? 'actual-user-not-found'
+          : 'ml-proxy-not-configured',
+    });
+    return;
+  }
+
   const requestHeaders = { ...req.headers };
   delete requestHeaders.host;
   delete requestHeaders['content-length'];
+  delete requestHeaders.authorization;
+  delete requestHeaders['x-actual-token'];
+  delete requestHeaders[ML_PROXY_USER_ID_HEADER];
+  delete requestHeaders[ML_PROXY_USERNAME_HEADER];
+  delete requestHeaders[ML_PROXY_TIMESTAMP_HEADER];
+  delete requestHeaders[ML_PROXY_SIGNATURE_HEADER];
 
   const body = createProxyBody(req);
   let lastError = null;
@@ -61,7 +145,10 @@ app.use('/', async (req, res) => {
     try {
       const response = await fetch(url, {
         method: req.method,
-        headers: requestHeaders,
+        headers: {
+          ...requestHeaders,
+          ...signedIdentity.headers,
+        },
         body,
       });
 

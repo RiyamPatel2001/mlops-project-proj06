@@ -3,58 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
-
-
-def _validate_username(username: str) -> str:
-    normalized = username.strip()
-    if not normalized:
-        raise ValueError('Username is required.')
-    return normalized
-
-
-def _validate_password(password: str) -> str:
-    if not password:
-        raise ValueError('Password is required.')
-    return password
-
-
-# ── /auth ────────────────────────────────────────────────────────────────────
-
-class AuthRegisterRequest(BaseModel):
-    username: str = Field(..., min_length=1, max_length=100)
-    password: str = Field(..., min_length=1, max_length=200)
-
-    _normalize_username = field_validator('username')(_validate_username)
-    _validate_password = field_validator('password')(_validate_password)
-
-
-class AuthLoginRequest(BaseModel):
-    username: str = Field(..., min_length=1, max_length=100)
-    password: str = Field(..., min_length=1, max_length=200)
-
-    _normalize_username = field_validator('username')(_validate_username)
-    _validate_password = field_validator('password')(_validate_password)
-
-
-class AuthRegisterResponse(BaseModel):
-    status: str = 'ok'
-    user_id: str
-    username: str
-
-
-class AuthLoginResponse(BaseModel):
-    status: str = 'ok'
-    user_id: str
-    username: str
-    token: str
-
-
-class AuthMeResponse(BaseModel):
-    status: str = 'ok'
-    user_id: str
-    username: str
-
+from pydantic import BaseModel, Field
 
 # ── /classify ────────────────────────────────────────────────────────────────
 

@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import secrets
+import os
+import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Optional
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
 
-from app import db
-from app.config import AUTH_PASSWORD_HASH_ITERATIONS, AUTH_SESSION_TTL_HOURS
+ACTUAL_USER_ID_HEADER = 'X-Actual-User-Id'
+ACTUAL_USERNAME_HEADER = 'X-Actual-Username'
+ACTUAL_TIMESTAMP_HEADER = 'X-Actual-Auth-Timestamp'
+ACTUAL_SIGNATURE_HEADER = 'X-Actual-Auth-Signature'
+DEFAULT_ACTUAL_AUTH_MAX_AGE_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -19,80 +22,99 @@ class AuthenticatedUser:
     username: str
 
 
-def normalize_username(username: str) -> str:
-    normalized = username.strip().lower()
-    if not normalized:
-        raise ValueError('invalid-username')
-    return normalized
+def _shared_secret() -> str:
+    return os.getenv('ACTUAL_ML_SHARED_SECRET', '')
 
 
-def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac(
-        'sha256',
-        password.encode('utf-8'),
-        salt.encode('utf-8'),
-        AUTH_PASSWORD_HASH_ITERATIONS,
+def _max_auth_age_seconds() -> int:
+    raw_value = os.getenv(
+        'ACTUAL_ML_AUTH_MAX_AGE_SECONDS',
+        str(DEFAULT_ACTUAL_AUTH_MAX_AGE_SECONDS),
     )
-    return (
-        f'pbkdf2_sha256${AUTH_PASSWORD_HASH_ITERATIONS}'
-        f'${salt}${digest.hex()}'
-    )
-
-
-def verify_password(password: str, stored_hash: str) -> bool:
     try:
-        algorithm, iterations, salt, digest_hex = stored_hash.split('$', 3)
+        return max(1, int(raw_value))
     except ValueError:
-        return hmac.compare_digest(password, stored_hash)
+        return DEFAULT_ACTUAL_AUTH_MAX_AGE_SECONDS
 
-    if algorithm != 'pbkdf2_sha256':
-        return False
 
-    digest = hashlib.pbkdf2_hmac(
-        'sha256',
-        password.encode('utf-8'),
-        salt.encode('utf-8'),
-        int(iterations),
+def build_actual_proxy_signature(
+    *,
+    secret: str,
+    user_id: str,
+    username: str,
+    method: str,
+    path: str,
+    query: str,
+    timestamp: str,
+) -> str:
+    payload = '\n'.join(
+        [user_id, username, method.upper(), path, query, timestamp],
     )
-    return hmac.compare_digest(digest.hex(), digest_hex)
-
-
-def create_session_token() -> str:
-    return secrets.token_urlsafe(32)
-
-
-def hash_session_token(token: str) -> str:
-    return hashlib.sha256(token.encode('utf-8')).hexdigest()
-
-
-def get_session_expiry() -> datetime:
-    return datetime.utcnow() + timedelta(hours=AUTH_SESSION_TTL_HOURS)
+    return hmac.new(
+        secret.encode('utf-8'),
+        payload.encode('utf-8'),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def _unauthorized(detail: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=detail,
-        headers={'WWW-Authenticate': 'Bearer'},
     )
 
 
 async def require_authenticated_user(
-    authorization: Annotated[str | None, Header(alias='Authorization')] = None,
+    request: Request,
+    actual_user_id: Annotated[
+        Optional[str], Header(alias=ACTUAL_USER_ID_HEADER)
+    ] = None,
+    actual_username: Annotated[
+        Optional[str], Header(alias=ACTUAL_USERNAME_HEADER)
+    ] = None,
+    actual_auth_timestamp: Annotated[
+        Optional[str], Header(alias=ACTUAL_TIMESTAMP_HEADER)
+    ] = None,
+    actual_auth_signature: Annotated[
+        Optional[str], Header(alias=ACTUAL_SIGNATURE_HEADER)
+    ] = None,
 ) -> AuthenticatedUser:
-    if not authorization:
-        raise _unauthorized('missing-auth-token')
+    secret = _shared_secret()
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail='actual-auth-not-configured',
+        )
 
-    scheme, _, token = authorization.partition(' ')
-    if scheme.lower() != 'bearer' or not token:
-        raise _unauthorized('invalid-auth-token')
+    if not (
+        actual_user_id
+        and actual_username
+        and actual_auth_timestamp
+        and actual_auth_signature
+    ):
+        raise _unauthorized('missing-actual-auth')
 
-    user = await db.get_auth_user_for_session(hash_session_token(token))
-    if not user:
-        raise _unauthorized('invalid-auth-token')
+    try:
+        timestamp = int(actual_auth_timestamp)
+    except ValueError as exc:
+        raise _unauthorized('invalid-actual-auth') from exc
+
+    if abs(int(time.time()) - timestamp) > _max_auth_age_seconds():
+        raise _unauthorized('stale-actual-auth')
+
+    expected_signature = build_actual_proxy_signature(
+        secret=secret,
+        user_id=actual_user_id,
+        username=actual_username,
+        method=request.method,
+        path=request.url.path,
+        query=request.url.query,
+        timestamp=actual_auth_timestamp,
+    )
+    if not hmac.compare_digest(expected_signature, actual_auth_signature):
+        raise _unauthorized('invalid-actual-auth')
 
     return AuthenticatedUser(
-        user_id=user['user_id'],
-        username=user['username'],
+        user_id=actual_user_id,
+        username=actual_username,
     )

@@ -48,7 +48,7 @@ export function CustomCategoryTagger({ accountId: _accountId }: Props) {
       void loadCategories();
     } else {
       if (result.reason === 'auth') {
-        setMessage(t('Sign in to the ML service to save examples'));
+        setMessage(t('Sign in to Actual to save examples'));
       } else if (result.reason === 'network') {
         setMessage(t('Failed to reach the ML service'));
       } else {

@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
         - name: actualbudget
-          image: ghcr.io/riyampatel2001/mlops-project-proj06/actual-custom:4f045d9876828e415cc965a081eecf596a5b869a
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/actual-custom:7bbd3adb16b14a879dbb7340ff02d19d1494ddd9
           imagePullPolicy: Always
           ports:
             - name: http
@@ -39,6 +39,8 @@ spec:
           env:
             - name: ACTUAL_UPLOAD_FILE_SYNC_ENABLED
               value: "false"
+            - name: ACTUAL_ML_SHARED_SECRET
+              value: "njk-YsFKyseocyxq_rldJVMYrXPe2YEE4f86vSSF-5k"
           resources:
             requests:
               cpu: "250m"

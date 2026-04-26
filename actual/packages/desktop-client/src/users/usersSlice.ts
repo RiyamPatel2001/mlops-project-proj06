@@ -3,11 +3,6 @@ import type { Handlers } from '@actual-app/core/types/handlers';
 import { createSlice } from '@reduxjs/toolkit';
 import type { PayloadAction } from '@reduxjs/toolkit';
 
-import {
-  clearMLAuthSession,
-  getStoredMLUsername,
-  hasStoredMLAuthToken,
-} from '../ml/mlService';
 import { resetApp } from '#app/appSlice';
 import { closeBudget, loadAllFiles } from '#budgetfiles/budgetfilesSlice';
 import { loadGlobalPrefs } from '#prefs/prefsSlice';
@@ -15,30 +10,10 @@ import { createAppAsyncThunk } from '#redux';
 
 const sliceName = 'user';
 
-function getMLSessionFallbackUser(): Awaited<
-  ReturnType<Handlers['subscribe-get-user']>
-> {
-  if (!hasStoredMLAuthToken()) {
-    return null;
-  }
-
-  const username = getStoredMLUsername();
-  return {
-    offline: false,
-    userName: username || 'ml-user',
-    displayName: username || 'ml-user',
-    loginMethod: 'password',
-    permission: '',
-    userId: null,
-    tokenExpired: false,
-    serverPrefs: undefined,
-  };
-}
-
 export const getUserData = createAppAsyncThunk(
   `${sliceName}/getUserData`,
   async (_, { dispatch }) => {
-    const data = (await send('subscribe-get-user')) ?? getMLSessionFallbackUser();
+    const data = await send('subscribe-get-user');
     dispatch(loadUserData({ data }));
     return data;
   },
@@ -71,7 +46,6 @@ export const signOut = createAppAsyncThunk(
   `${sliceName}/signOut`,
   async (_, { dispatch }) => {
     await send('subscribe-sign-out');
-    clearMLAuthSession();
 
     void dispatch(getUserData());
     void dispatch(loadGlobalPrefs());
