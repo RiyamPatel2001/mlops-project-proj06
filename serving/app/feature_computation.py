@@ -40,6 +40,10 @@ def day_of_week(date_str: str) -> str:
     return datetime.strptime(date_str, "%Y-%m-%d").strftime("%A")
 
 
+def day_of_month(date_str: str) -> int:
+    return datetime.strptime(date_str, "%Y-%m-%d").day
+
+
 def compute_features(payee: str, amount_dollars: float, date_str: str) -> dict:
     """Build the feature vector expected by the fastText model.
 
@@ -52,11 +56,13 @@ def compute_features(payee: str, amount_dollars: float, date_str: str) -> dict:
     dollars = abs(amount_dollars)
     amt_bin = bin_amount(dollars)
     dow = day_of_week(date_str)
+    dom = day_of_month(date_str)
     feature_vector = f"{norm_payee} | amount:{amt_bin} | day:{dow}"
 
     return {
         "normalized_payee": norm_payee,
         "amount_bin": amt_bin,
         "day_of_week": dow,
+        "day_of_month": dom,
         "feature_vector": feature_vector,
     }

@@ -94,7 +94,10 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 async def classify(
     user_id: str,
-    payee: str,
+    normalized_payee: str,
+    amount_bin: str,
+    day_of_week: str,
+    day_of_month: int,
 ) -> Optional[tuple[str, float]]:
     """Attempt Layer 2 classification.
 
@@ -105,7 +108,10 @@ async def classify(
     if len(examples) < LAYER2_MIN_EXAMPLES:
         return None
 
-    query_vec = await get_embedding(payee)
+    query_text = (
+        f"{normalized_payee} {amount_bin} {day_of_week} {day_of_month}"
+    )
+    query_vec = await get_embedding(query_text)
     if query_vec is None:
         return None
 

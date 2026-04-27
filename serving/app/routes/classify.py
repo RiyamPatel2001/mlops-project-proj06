@@ -33,7 +33,13 @@ async def classify_transaction(
             batch_id=req.batch_id,
         )
 
-        l2_result = await layer2.classify(user_id, req.payee)
+        l2_result = await layer2.classify(
+            user_id,
+            normalized_payee=features["normalized_payee"],
+            amount_bin=features["amount_bin"],
+            day_of_week=features["day_of_week"],
+            day_of_month=features["day_of_month"],
+        )
         if l2_result is not None:
             category, similarity = l2_result
             record_classification(
