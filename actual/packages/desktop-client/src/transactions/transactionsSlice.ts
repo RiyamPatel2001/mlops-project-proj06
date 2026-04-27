@@ -10,12 +10,26 @@ type TransactionsState = {
   newTransactions: Array<TransactionEntity['id']>;
   matchedTransactions: Array<TransactionEntity['id']>;
   lastTransaction: TransactionEntity | null;
+  mlCategoryPredictions: Record<
+    TransactionEntity['id'],
+    {
+      transactionId: TransactionEntity['id'];
+      payee: string;
+      amount: number;
+      date: string;
+      predictedCategory: string;
+      confidence: number | null;
+      source: string;
+      flashVersion: number;
+    }
+  >;
 };
 
 const initialState: TransactionsState = {
   newTransactions: [],
   matchedTransactions: [],
   lastTransaction: null,
+  mlCategoryPredictions: {},
 };
 
 type SetNewTransactionsPayload = {
@@ -29,6 +43,20 @@ type UpdateNewTransactionsPayload = {
 
 type SetLastTransactionPayload = {
   transaction: TransactionEntity;
+};
+
+type RegisterMlCategoryPredictionPayload = {
+  transactionId: TransactionEntity['id'];
+  payee: string;
+  amount: number;
+  date: string;
+  predictedCategory: string;
+  confidence: number | null;
+  source: string;
+};
+
+type ClearMlCategoryPredictionPayload = {
+  transactionId: TransactionEntity['id'];
 };
 
 const transactionsSlice = createSlice({
@@ -64,6 +92,22 @@ const transactionsSlice = createSlice({
     ) {
       state.lastTransaction = action.payload.transaction;
     },
+    registerMlCategoryPrediction(
+      state,
+      action: PayloadAction<RegisterMlCategoryPredictionPayload>,
+    ) {
+      const existing = state.mlCategoryPredictions[action.payload.transactionId];
+      state.mlCategoryPredictions[action.payload.transactionId] = {
+        ...action.payload,
+        flashVersion: (existing?.flashVersion ?? 0) + 1,
+      };
+    },
+    clearMlCategoryPrediction(
+      state,
+      action: PayloadAction<ClearMlCategoryPredictionPayload>,
+    ) {
+      delete state.mlCategoryPredictions[action.payload.transactionId];
+    },
   },
   extraReducers: builder => {
     builder.addCase(resetApp, () => initialState);
@@ -75,5 +119,10 @@ export const actions = {
   ...transactionsSlice.actions,
 };
 
-export const { setNewTransactions, updateNewTransactions, setLastTransaction } =
-  transactionsSlice.actions;
+export const {
+  setNewTransactions,
+  updateNewTransactions,
+  setLastTransaction,
+  registerMlCategoryPrediction,
+  clearMlCategoryPrediction,
+} = transactionsSlice.actions;

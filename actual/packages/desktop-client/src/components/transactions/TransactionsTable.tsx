@@ -132,7 +132,7 @@ import { NotesTagFormatter } from '#notes/NotesTagFormatter';
 import { addNotification } from '#notifications/notificationsSlice';
 import { getPayeesById } from '#payees';
 import { aqlQuery } from '#queries/aqlQuery';
-import { useDispatch } from '#redux';
+import { useDispatch, useSelector } from '#redux';
 
 import {
   deserializeTransaction,
@@ -965,6 +965,10 @@ const Transaction = memo(function Transaction({
   const dispatch = useDispatch();
   const dispatchSelected = useSelectedDispatch();
   const triggerRef = useRef(null);
+  const categoryValueRef = useRef<HTMLDivElement | null>(null);
+  const mlPrediction = useSelector(
+    state => state.transactions.mlCategoryPredictions[originalTransaction.id],
+  );
 
   const [prevShowZero, setPrevShowZero] = useState(showZeroInDeposit);
   const [prevTransaction, setPrevTransaction] = useState(originalTransaction);
@@ -1202,6 +1206,38 @@ const Transaction = memo(function Transaction({
     }, 1);
     return () => clearTimeout(id);
   }, [splitError, allTransactions]);
+
+  useEffect(() => {
+    if (!mlPrediction || !categoryValueRef.current) {
+      return;
+    }
+
+    const animation = categoryValueRef.current.animate(
+      [
+        {
+          boxShadow: '0 0 0 0 rgba(255, 196, 61, 0)',
+          background: 'rgba(255, 236, 179, 0)',
+          transform: 'scale(1)',
+        },
+        {
+          boxShadow: '0 0 0 6px rgba(255, 196, 61, 0.28)',
+          background: 'rgba(255, 236, 179, 0.92)',
+          transform: 'scale(1.015)',
+        },
+        {
+          boxShadow: '0 0 0 10px rgba(255, 196, 61, 0)',
+          background: 'rgba(255, 236, 179, 0)',
+          transform: 'scale(1)',
+        },
+      ],
+      {
+        duration: 1350,
+        easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+      },
+    );
+
+    return () => animation.cancel();
+  }, [mlPrediction?.flashVersion]);
 
   const { setMenuOpen, menuOpen, handleContextMenu, position } =
     useContextMenu();
@@ -1735,6 +1771,45 @@ const Transaction = memo(function Transaction({
                   }
                 : valueStyle
             }
+            unexposedContent={props => (
+              <View
+                innerRef={categoryValueRef}
+                style={{
+                  flex: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 5,
+                  borderRadius: 8,
+                  padding: '2px 6px',
+                  minWidth: 0,
+                  transformOrigin: 'left center',
+                }}
+              >
+                <UnexposedCellContent
+                  {...props}
+                  style={{
+                    flexGrow: 0,
+                    minWidth: 0,
+                  }}
+                />
+                {mlPrediction ? (
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: 0.3,
+                      color: theme.noticeText,
+                      background: theme.noticeBackground,
+                      borderRadius: 999,
+                      padding: '1px 5px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    ML
+                  </Text>
+                ) : null}
+              </View>
+            )}
             onUpdate={async value => {
               if (value === 'split') {
                 onSplit(transaction.id);
@@ -2229,7 +2304,11 @@ type TransactionTableInnerProps = {
   dateFormat: string | undefined;
   hideFraction: boolean;
   renderEmpty: ReactNode | (() => ReactNode);
-  onSave: (transaction: TransactionEntity) => void;
+  onSave: (
+    transaction: TransactionEntity,
+    subtransactions?: TransactionEntity[] | null,
+    updatedFieldName?: string | null,
+  ) => void;
   onApplyRules: (
     transaction: TransactionEntity,
     field: string,
@@ -2623,7 +2702,11 @@ export type TransactionTableProps = {
   dateFormat: string | undefined;
   hideFraction: boolean;
   renderEmpty: ReactNode | (() => ReactNode);
-  onSave: (transaction: TransactionEntity) => void;
+  onSave: (
+    transaction: TransactionEntity,
+    subtransactions?: TransactionEntity[] | null,
+    updatedFieldName?: string | null,
+  ) => void;
   onApplyRules: (
     transaction: TransactionEntity,
     field: string | null,
