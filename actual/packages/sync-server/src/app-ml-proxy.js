@@ -17,9 +17,21 @@ app.use(requestLoggerMiddleware);
 
 export { app as handlers };
 
+function getKubernetesServiceTarget() {
+  const host = process.env.TRANSACTION_CLASSIFIER_SERVICE_HOST;
+  const port = process.env.TRANSACTION_CLASSIFIER_SERVICE_PORT || '8000';
+
+  if (!host) {
+    return null;
+  }
+
+  return `http://${host}:${port}`;
+}
+
 const DEFAULT_ML_PROXY_TARGETS = [
   process.env.ACTUAL_ML_SERVING_URL,
   process.env.ML_SERVING_URL,
+  getKubernetesServiceTarget(),
   'http://transaction-classifier.mlops.svc.cluster.local:8000',
   'http://transaction-classifier:8000',
   'http://127.0.0.1:8000',
@@ -109,6 +121,26 @@ function buildSignedIdentity(req, session) {
   };
 }
 
+function buildUpstreamHeaders(req, signedIdentity) {
+  const headers = {
+    ...signedIdentity.headers,
+  };
+
+  const accept = req.headers.accept;
+  if (typeof accept === 'string' && accept.length > 0) {
+    headers.accept = accept;
+  }
+
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const contentType = req.headers['content-type'];
+    if (typeof contentType === 'string' && contentType.length > 0) {
+      headers['content-type'] = contentType;
+    }
+  }
+
+  return headers;
+}
+
 app.use('/', async (req, res) => {
   const session = validateSession(req, res);
   if (!session) {
@@ -126,18 +158,10 @@ app.use('/', async (req, res) => {
     return;
   }
 
-  const requestHeaders = { ...req.headers };
-  delete requestHeaders.host;
-  delete requestHeaders['content-length'];
-  delete requestHeaders.authorization;
-  delete requestHeaders['x-actual-token'];
-  delete requestHeaders[ML_PROXY_USER_ID_HEADER];
-  delete requestHeaders[ML_PROXY_USERNAME_HEADER];
-  delete requestHeaders[ML_PROXY_TIMESTAMP_HEADER];
-  delete requestHeaders[ML_PROXY_SIGNATURE_HEADER];
-
   const body = createProxyBody(req);
+  const upstreamHeaders = buildUpstreamHeaders(req, signedIdentity);
   let lastError = null;
+  let lastTarget = null;
 
   for (const target of getMlProxyTargets()) {
     const url = new URL(req.url, `${target.replace(/\/$/, '')}/`);
@@ -145,10 +169,7 @@ app.use('/', async (req, res) => {
     try {
       const response = await fetch(url, {
         method: req.method,
-        headers: {
-          ...requestHeaders,
-          ...signedIdentity.headers,
-        },
+        headers: upstreamHeaders,
         body,
       });
 
@@ -158,11 +179,22 @@ app.use('/', async (req, res) => {
       return;
     } catch (error) {
       lastError = error;
+      lastTarget = target;
+      console.error(
+        '[ml-proxy] request failed',
+        JSON.stringify({
+          target,
+          method: req.method,
+          path: req.url,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
     }
   }
 
   res.status(502).json({
     error: 'ml-service-unavailable',
+    target: lastTarget,
     details: lastError instanceof Error ? lastError.message : String(lastError),
   });
 });
