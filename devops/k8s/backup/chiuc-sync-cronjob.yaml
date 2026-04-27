@@ -1,0 +1,83 @@
+# =============================================================================
+# CHI@UC Object Storage Sync — proj06
+# =============================================================================
+# Mirrors all MinIO bucket data to Chameleon CHI@UC native object storage
+# (chi.uc.chameleoncloud.org:7480) every hour at :45.
+#
+# This makes CHI@UC the durable source of truth:
+#   - MLflow artifacts, model weights, user_store.pkl, training data
+#   - Postgres backups (dumped hourly to MinIO/data/backups → synced here)
+#
+# DR restore: a new cluster runs chiuc-restore Job which pulls from CHI@UC
+#   back into MinIO before services start.
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chiuc-sync
+  namespace: mlops
+  labels:
+    app: chiuc-sync
+    project: proj06
+spec:
+  schedule: "45 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: chiuc-sync
+            project: proj06
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: mc-sync
+              image: minio/mc:latest
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -e
+                  mc alias set minio http://minio.mlops.svc.cluster.local:9000                     "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}" --quiet
+                  mc alias set chiuc https://chi.uc.chameleoncloud.org:7480                     "${CHIUC_ACCESS_KEY}" "${CHIUC_SECRET_KEY}" --api S3v2 --quiet
+
+                  echo "Syncing mlflow-artifacts to CHI@UC..."
+                  mc mirror --overwrite --remove                     minio/mlflow-artifacts chiuc/mlops-proj06/mlflow-artifacts
+
+                  echo "Syncing data bucket to CHI@UC..."
+                  mc mirror --overwrite --remove                     minio/data chiuc/mlops-proj06/data
+
+                  echo "Sync complete."
+                  mc du chiuc/mlops-proj06/
+              env:
+                - name: MINIO_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: accesskey
+                - name: MINIO_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: secretkey
+                - name: CHIUC_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: chiuc-s3-credentials
+                      key: access_key
+                - name: CHIUC_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: chiuc-s3-credentials
+                      key: secret_key
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
