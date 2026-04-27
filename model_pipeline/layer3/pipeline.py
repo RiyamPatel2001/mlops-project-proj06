@@ -2,6 +2,7 @@ import logging
 import os
 
 import mlflow
+import numpy as np
 import psycopg2
 import yaml
 
@@ -13,20 +14,33 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 
+def _load_store_from_postgres(cur) -> dict:
+    """Build per-user store dict from layer2_examples (real production users)."""
+    cur.execute("""
+        SELECT user_id, payee, custom_category, embedding_vector
+        FROM layer2_examples
+        ORDER BY user_id, timestamp
+    """)
+    store = {}
+    for user_id, payee, custom_category, embedding_vector in cur.fetchall():
+        if user_id not in store:
+            store[user_id] = {"embeddings": [], "labels": [], "payees": []}
+        store[user_id]["embeddings"].append(embedding_vector)
+        store[user_id]["labels"].append(custom_category)
+        store[user_id]["payees"].append(payee)
+    for uid in store:
+        store[uid]["embeddings"] = np.array(store[uid]["embeddings"], dtype=np.float32)
+    return store
+
+
 def run_pipeline(config: dict) -> None:
     """
     Weekly orchestration: cluster every user's embeddings, name each cluster via
     the LLM, and write pending suggestions to Postgres.
     """
-    store_path: str = config["layer3"]["store_path"]
     eps: float = config["layer3"]["eps"]
     min_samples: int = config["layer3"]["min_samples"]
     tracking_uri: str = config["mlflow"]["tracking_uri"].strip()
-
-    store: dict = load_store_dict(store_path)
-    if not store:
-        logger.warning("user_store.pkl not found at %s — nothing to process", store_path)
-        return
 
     dsn = os.environ.get("POSTGRES_DSN", config.get("postgres", {}).get("dsn", ""))
     if not dsn:
@@ -35,6 +49,23 @@ def run_pipeline(config: dict) -> None:
         )
     conn = psycopg2.connect(dsn)
     cur = conn.cursor()
+
+    source = os.environ.get("LAYER3_SOURCE", "postgres")
+    if source == "minio":
+        store = load_store_dict(config["layer3"]["store_path"])
+        if not store:
+            logger.warning("user_store.pkl not found at %s — nothing to process",
+                           config["layer3"]["store_path"])
+            cur.close()
+            conn.close()
+            return
+    else:
+        store = _load_store_from_postgres(cur)
+        if not store:
+            logger.warning("layer2_examples is empty — nothing to process")
+            cur.close()
+            conn.close()
+            return
 
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment("layer3-clustering")

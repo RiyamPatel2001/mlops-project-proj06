@@ -28,6 +28,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import mlflow
 import pandas as pd
@@ -591,7 +592,14 @@ def main() -> None:
     if not args.no_merge:
         base_path = cfg["data"]["raw_path"]
         try:
-            df_base = pd.read_csv(base_path)
+            if base_path.startswith("http://") or base_path.startswith("https://"):
+                p = urlparse(base_path)
+                bucket, obj = p.path.lstrip("/").split("/", 1)
+                df_base = pd.read_csv(
+                    io.BytesIO(_read_object_bytes(client, bucket, obj))
+                )
+            else:
+                df_base = pd.read_csv(base_path)
             df_combined = pd.concat([df_base, retrain_df], ignore_index=True)
             if "transaction_id" in df_combined.columns:
                 df_combined = df_combined.drop_duplicates(subset=["transaction_id"])
