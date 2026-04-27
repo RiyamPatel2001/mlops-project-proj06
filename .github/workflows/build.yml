@@ -154,6 +154,41 @@ jobs:
           push: true
           tags: ghcr.io/${{ env.REPO }}/layer3-pipeline:latest
 
+
+  build-drift-detection:
+    name: Data Pipeline (drift detection)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: data_pipeline/drift_detection
+          file: data_pipeline/drift_detection/Dockerfile.drift
+          push: true
+          tags: ghcr.io/${{ env.REPO }}/drift-detection:latest
+
+  build-feature-computation:
+    name: Data Pipeline (feature computation)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: data_pipeline/feature_computation
+          file: data_pipeline/feature_computation/Dockerfile.feature
+          push: true
+          tags: ghcr.io/${{ env.REPO }}/feature-computation:latest
+
   build-actualbudget:
     name: ActualBudget (actual-custom)
     runs-on: ubuntu-latest
