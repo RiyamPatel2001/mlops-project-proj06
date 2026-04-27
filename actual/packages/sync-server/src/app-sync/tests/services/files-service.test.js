@@ -122,6 +122,8 @@ describe('FilesService', () => {
   );
 
   test('find should return a list of files', () => {
+    accountDb.mutate('UPDATE files SET owner = ? WHERE id = ?', ['genericAdmin', '1']);
+
     const files = filesService.find({ userId: 'genericAdmin' });
     expect(files.length).toBe(1);
     expect(files[0]).toEqual(
@@ -135,11 +137,14 @@ describe('FilesService', () => {
         encryptTest: 'test',
         encryptKeyId: 'keyid',
         deleted: false,
+        owner: 'genericAdmin',
       }),
     );
   });
 
   test('find should respect the limit parameter', () => {
+    accountDb.mutate('UPDATE files SET owner = ? WHERE id = ?', ['genericAdmin', '1']);
+
     filesService.set(
       new File({
         id: crypto.randomBytes(16).toString('hex'),
@@ -148,6 +153,7 @@ describe('FilesService', () => {
         name: 'file2',
         encryptMeta: '{"key":"value2"}',
         deleted: false,
+        owner: 'genericAdmin',
       }),
     );
     // Make sure that the file was inserted
@@ -191,6 +197,8 @@ describe('FilesService', () => {
   });
 
   test('find should return only files accessible to the user', () => {
+    accountDb.mutate('UPDATE files SET owner = ? WHERE id = ?', ['genericAdmin', '1']);
+
     filesService.set(
       new File({
         id: crypto.randomBytes(16).toString('hex'),
@@ -215,10 +223,25 @@ describe('FilesService', () => {
       }),
     );
 
-    expect(filesService.find({ userId: 'genericUser' })).toHaveLength(1);
-    expect(
-      filesService.find({ userId: 'genericAdmin' }).length,
-    ).toBeGreaterThan(1);
+    const sharedFileId = crypto.randomBytes(16).toString('hex');
+    filesService.set(
+      new File({
+        id: sharedFileId,
+        groupId: 'group3',
+        syncVersion: 1,
+        name: 'shared-file',
+        encryptMeta: '{"key":"value3"}',
+        deleted: false,
+        owner: 'differentOwner',
+      }),
+    );
+    accountDb.mutate(
+      'INSERT INTO user_access (user_id, file_id) VALUES (?, ?)',
+      ['genericUser', sharedFileId],
+    );
+
+    expect(filesService.find({ userId: 'genericUser' })).toHaveLength(2);
+    expect(filesService.find({ userId: 'genericAdmin' })).toHaveLength(2);
   });
 
   test.each([['update-group', null]])(

@@ -93,11 +93,17 @@ CREATE INDEX IF NOT EXISTS idx_layer3_suggestions_user_status
     ON layer3_suggestions (user_id, status);
 """
 
+_DROP_UNUSED_AUTH_TABLES_DDL = """
+DROP TABLE IF EXISTS auth_sessions;
+DROP TABLE IF EXISTS auth_users;
+"""
+
 
 async def ensure_tables() -> None:
     if not _pool:
         return
     async with _pool.acquire() as conn:
+        await conn.execute(_DROP_UNUSED_AUTH_TABLES_DDL)
         await conn.execute(_FEEDBACK_DDL)
         await conn.execute(_LAYER2_DDL)
         await conn.execute(_SUGGESTION_DDL)
@@ -110,6 +116,37 @@ async def insert_feedback(row: dict[str, Any]) -> int:
     if not _pool:
         return 0
     async with _pool.acquire() as conn:
+        rec = await conn.fetchrow(
+            """
+            UPDATE feedback_store
+            SET payee = $3,
+                amount = $4,
+                date = $5,
+                original_prediction = $6,
+                original_confidence = $7,
+                final_label = $9,
+                reviewed_by_user = $10,
+                timestamp = $11
+            WHERE transaction_id = $1
+              AND user_id = $2
+              AND source = $8
+            RETURNING id
+            """,
+            row["transaction_id"],
+            row["user_id"],
+            row["payee"],
+            row["amount"],
+            row["date"],
+            row.get("original_prediction"),
+            row.get("original_confidence"),
+            row.get("source", "layer1"),
+            row["final_label"],
+            row["reviewed_by_user"],
+            row.get("timestamp", datetime.utcnow()),
+        )
+        if rec:
+            return rec["id"]  # type: ignore[index]
+
         rec = await conn.fetchrow(
             """
             INSERT INTO feedback_store

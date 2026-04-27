@@ -66,6 +66,10 @@ import type { DateFormat, FieldMapping, ImportTransaction } from './utils';
 const ML_PREDICTION_CONFIDENCE_THRESHOLD = 0.6;
 const ML_REVIEW_ROW_MIN_HEIGHT = 38;
 
+function normalizeCategoryName(category: string | null | undefined): string {
+  return category?.trim() ?? '';
+}
+
 function CheckboxToggle({
   id,
   checked,
@@ -283,13 +287,23 @@ export function ImportTransactionsModal({
 
   const mlCategoryOptions = useMemo(() => {
     const names = new Set<string>();
-    categories.forEach(category => names.add(category.name));
-    mlPreds.forEach(prediction => {
-      if (prediction.predictedCategory) {
-        names.add(prediction.predictedCategory);
+    categories.forEach(category => {
+      const normalizedName = normalizeCategoryName(category.name);
+      if (normalizedName) {
+        names.add(normalizedName);
       }
-      if (prediction.selectedCategory) {
-        names.add(prediction.selectedCategory);
+    });
+    mlPreds.forEach(prediction => {
+      const predictedCategory = normalizeCategoryName(
+        prediction.predictedCategory,
+      );
+      const selectedCategory = normalizeCategoryName(prediction.selectedCategory);
+
+      if (predictedCategory) {
+        names.add(predictedCategory);
+      }
+      if (selectedCategory) {
+        names.add(selectedCategory);
       }
     });
 
@@ -811,11 +825,11 @@ export function ImportTransactionsModal({
                 payee: payeeName,
                 amount: tx.amount || 0,
                 date: tx.date || '',
-                predictedCategory: r?.category || '',
+                predictedCategory: normalizeCategoryName(r?.category),
                 selectedCategory:
                   r?.confidence >= ML_PREDICTION_CONFIDENCE_THRESHOLD &&
                   r.category
-                    ? r.category
+                    ? normalizeCategoryName(r.category)
                     : '',
                 confidence: r?.confidence ?? 0,
                 source: r?.source || '',
@@ -990,15 +1004,20 @@ export function ImportTransactionsModal({
   });
 
   const recordMlFeedback = useEffectEvent((prediction: MLPrediction, finalLabel: string) => {
+    const normalizedOriginalPrediction = normalizeCategoryName(
+      prediction.predictedCategory,
+    );
+    const normalizedFinalLabel = normalizeCategoryName(finalLabel);
+
     void submitFeedback({
       transaction_id: prediction.id,
       payee: prediction.payee,
       amount: prediction.amount,
       date: prediction.date,
-      original_prediction: prediction.predictedCategory,
+      original_prediction: normalizedOriginalPrediction || null,
       original_confidence: prediction.confidence,
       source: prediction.source,
-      final_label: finalLabel,
+      final_label: normalizedFinalLabel,
       reviewed_by_user: true,
       timestamp: new Date().toISOString(),
     });
@@ -1010,9 +1029,10 @@ export function ImportTransactionsModal({
       return;
     }
 
+    const normalizedCategory = normalizeCategoryName(nextCategory);
     const nextPrediction = {
       ...currentPrediction,
-      selectedCategory: nextCategory,
+      selectedCategory: normalizedCategory,
     };
 
     setMlPreds(prev =>
@@ -1021,12 +1041,10 @@ export function ImportTransactionsModal({
       ),
     );
 
-    if (mlAction === 'pending') {
-      return;
-    }
-
-    const catNameToId = await ensureCategoryIds(nextCategory ? [nextCategory] : []);
-    const cid = nextCategory ? catNameToId[nextCategory] : null;
+    const catNameToId = await ensureCategoryIds(
+      normalizedCategory ? [normalizedCategory] : [],
+    );
+    const cid = normalizedCategory ? catNameToId[normalizedCategory] : null;
 
     try {
       await send('api/transaction-update', {
@@ -1036,9 +1054,9 @@ export function ImportTransactionsModal({
       void queryClient.invalidateQueries(payeeQueries.list());
     } catch {}
 
-    recordMlFeedback(nextPrediction, nextCategory);
+    recordMlFeedback(nextPrediction, normalizedCategory);
     setMlApplied(prev =>
-      nextCategory
+      normalizedCategory
         ? prev.some(item => item.id === predictionId)
           ? prev
           : [...prev, { id: predictionId }]
@@ -1561,6 +1579,14 @@ export function ImportTransactionsModal({
                   {t('The model predicted categories for {{count}} transactions. Review them, edit categories if needed, and then confirm or reject them.', { count: mlPreds.length })}
                 </Text>
               )}
+              {mlPreds.some(
+                prediction =>
+                  prediction.predictedCategory && !prediction.selectedCategory,
+              ) && (
+                <Text style={{ fontSize: 13, color: theme.pageTextSubdued, marginBottom: 16 }}>
+                  {t('Low-confidence predictions are shown below, but they are not preselected until you choose a category.')}
+                </Text>
+              )}
               {mlStatusMessage && (
                 <Text style={{ fontSize: 13, color: theme.pageTextSubdued, marginBottom: 16 }}>
                   {mlStatusMessage}
@@ -1572,7 +1598,8 @@ export function ImportTransactionsModal({
                   <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', backgroundColor: theme.tableHeaderBackground, padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>
                     <Text style={{ flex: 3 }}>{t('Payee')}</Text>
                     <Text style={{ flex: 2, textAlign: 'right', paddingRight: 16 }}>{t('Amount')}</Text>
-                    <Text style={{ flex: 4, paddingLeft: 16 }}>{t('Category')}</Text>
+                    <Text style={{ flex: 3, paddingLeft: 16 }}>{t('Model prediction')}</Text>
+                    <Text style={{ flex: 4, paddingLeft: 16 }}>{t('Selected category')}</Text>
                   </View>
                   {mlPreds.map(p => (
                     <View
@@ -1612,6 +1639,24 @@ export function ImportTransactionsModal({
                           }}
                         >
                           {(p.amount / 100).toFixed(2)}
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          flex: 3,
+                          minHeight: ML_REVIEW_ROW_MIN_HEIGHT - 8,
+                          justifyContent: 'center',
+                          paddingLeft: 16,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: p.predictedCategory
+                              ? theme.pageText
+                              : theme.pageTextSubdued,
+                          }}
+                        >
+                          {p.predictedCategory || t('(none)')}
                         </Text>
                       </View>
                       <View

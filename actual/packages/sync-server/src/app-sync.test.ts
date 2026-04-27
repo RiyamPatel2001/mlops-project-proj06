@@ -10,6 +10,7 @@ import { handlers as app } from './app-sync';
 import { getPathForUserFile, isValidFileId } from './util/paths';
 
 const ADMIN_ROLE = 'ADMIN';
+const BASIC_ROLE = 'BASIC';
 const OTHER_USER_ID = 'otherUser';
 
 const createUser = (userId, userName, role, owner = 0, enabled = 1) => {
@@ -929,23 +930,34 @@ describe('/list-user-files', () => {
     });
   });
 
-  it('returns a list of user files for an authenticated user', async () => {
+  it('returns only files owned by or shared with the authenticated user', async () => {
     createUser('fileListAdminId', 'admin', ADMIN_ROLE, 1);
     onTestFinished(() => deleteUser('fileListAdminId'));
+    createUser('sharedOwnerId', 'shared-owner', BASIC_ROLE);
+    onTestFinished(() => deleteUser('sharedOwnerId'));
 
-    const fileId1 = crypto.randomBytes(16).toString('hex');
-    const fileId2 = crypto.randomBytes(16).toString('hex');
-    const fileName1 = 'file1.txt';
-    const fileName2 = 'file2.txt';
+    const ownedFileId = crypto.randomBytes(16).toString('hex');
+    const sharedFileId = crypto.randomBytes(16).toString('hex');
+    const hiddenFileId = crypto.randomBytes(16).toString('hex');
+    const ownedFileName = 'owned-file.txt';
+    const sharedFileName = 'shared-file.txt';
+    const hiddenFileName = 'hidden-file.txt';
 
-    // Insert mock files into the database
     getAccountDb().mutate(
       'INSERT INTO files (id, name, deleted, owner) VALUES (?, ?, FALSE, ?)',
-      [fileId1, fileName1, ''],
+      [ownedFileId, ownedFileName, 'genericAdmin'],
     );
     getAccountDb().mutate(
       'INSERT INTO files (id, name, deleted, owner) VALUES (?, ?, FALSE, ?)',
-      [fileId2, fileName2, ''],
+      [sharedFileId, sharedFileName, 'sharedOwnerId'],
+    );
+    getAccountDb().mutate(
+      'INSERT INTO files (id, name, deleted, owner) VALUES (?, ?, FALSE, ?)',
+      [hiddenFileId, hiddenFileName, 'otherUserId'],
+    );
+    getAccountDb().mutate(
+      'INSERT INTO user_access (file_id, user_id) VALUES (?, ?)',
+      [sharedFileId, 'genericAdmin'],
     );
 
     const res = await request(app)
@@ -959,21 +971,23 @@ describe('/list-user-files', () => {
         data: expect.arrayContaining([
           expect.objectContaining({
             deleted: 0,
-            fileId: fileId1,
+            fileId: ownedFileId,
             groupId: null,
-            name: fileName1,
+            name: ownedFileName,
             encryptKeyId: null,
           }),
           expect.objectContaining({
             deleted: 0,
-            fileId: fileId2,
+            fileId: sharedFileId,
             groupId: null,
-            name: fileName2,
+            name: sharedFileName,
             encryptKeyId: null,
           }),
         ]),
       }),
     );
+    expect(res.body.data).toHaveLength(2);
+    expect(res.body.data.map(file => file.fileId)).not.toContain(hiddenFileId);
   });
 });
 
