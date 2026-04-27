@@ -3,10 +3,13 @@ kind: PersistentVolumeClaim
 metadata:
   name: minio-pvc
   namespace: mlops
+  labels:
+    project: proj06
 spec:
+  storageClassName: ""
+  volumeName: minio-pv-vdb
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 10Gi
-  storageClassName: local-path
+      storage: 30Gi

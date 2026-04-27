@@ -6,12 +6,13 @@ metadata:
   labels:
     project: proj06
 spec:
+  storageClassName: ""
+  volumeName: data-pv-vdb
   accessModes:
     - ReadWriteOnce
-  storageClassName: local-path
   resources:
     requests:
-      storage: 10Gi
+      storage: 20Gi
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -21,9 +22,10 @@ metadata:
   labels:
     project: proj06
 spec:
+  storageClassName: ""
+  volumeName: mlflow-artifacts-pv-vdb
   accessModes:
     - ReadWriteOnce
-  storageClassName: local-path
   resources:
     requests:
-      storage: 5Gi
+      storage: 10Gi

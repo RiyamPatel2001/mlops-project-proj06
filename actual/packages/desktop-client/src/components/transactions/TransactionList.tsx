@@ -40,6 +40,7 @@ import { useDispatch, useStore } from '#redux';
 
 import {
   autoCategorizeTransaction,
+  shouldSyncMlCategoryFeedbackOnCategorySave,
   syncMlCategoryFeedbackOnEdit,
 } from '../../ml/transactionCategory';
 import { TransactionTable } from './TransactionsTable';
@@ -469,9 +470,6 @@ export function TransactionList({
       updatedFieldName: string,
     ) => {
       const saveTransaction = async () => {
-        const previousTransaction = transactionsLatest.current.find(
-          t => t.id === transaction.id,
-        );
         const changes = updateTransaction(
           transactionsLatest.current,
           transaction,
@@ -479,14 +477,16 @@ export function TransactionList({
         transactionsLatest.current = changes.data;
 
         if (changes.diff.updated.length > 0) {
+          const shouldSyncMlFeedback = shouldSyncMlCategoryFeedbackOnCategorySave({
+            updatedFieldName,
+            state: store.getState(),
+            transactionId: transaction.id,
+          });
           const dateChanged = !!changes.diff.updated[0].date;
           if (dateChanged) {
             changes.diff.updated[0].sort_order = Date.now();
             await saveDiff(changes.diff, isLearnCategoriesEnabled);
-            if (
-              updatedFieldName === 'category' &&
-              previousTransaction?.category !== transaction.category
-            ) {
+            if (shouldSyncMlFeedback) {
               await syncMlCategoryFeedbackOnEdit({
                 dispatch,
                 state: store.getState(),
@@ -504,10 +504,7 @@ export function TransactionList({
               onChange,
               isLearnCategoriesEnabled,
             );
-            if (
-              updatedFieldName === 'category' &&
-              previousTransaction?.category !== transaction.category
-            ) {
+            if (shouldSyncMlFeedback) {
               await applyPromise;
               await syncMlCategoryFeedbackOnEdit({
                 dispatch,

@@ -229,6 +229,22 @@ export function getMlCategoryPrediction(
   return state.transactions.mlCategoryPredictions[transactionId] ?? null;
 }
 
+export function shouldSyncMlCategoryFeedbackOnCategorySave({
+  updatedFieldName,
+  state,
+  transactionId,
+}: {
+  updatedFieldName: string;
+  state: RootState;
+  transactionId: TransactionEntity['id'];
+}) {
+  if (updatedFieldName !== 'category') {
+    return false;
+  }
+
+  return !!getMlCategoryPrediction(state, transactionId);
+}
+
 export async function syncMlCategoryFeedbackOnEdit({
   dispatch,
   state,
@@ -248,9 +264,6 @@ export async function syncMlCategoryFeedbackOnEdit({
   }
 
   const finalLabel = getCategoryNameById(categoryGroups, nextCategoryId);
-  if (normalizeCategoryName(finalLabel) === prediction.predictedCategory) {
-    return false;
-  }
 
   await submitFeedback({
     transaction_id: transaction.id,

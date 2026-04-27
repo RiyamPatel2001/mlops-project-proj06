@@ -3,10 +3,13 @@ kind: PersistentVolumeClaim
 metadata:
   name: postgres-pvc
   namespace: mlops
+  labels:
+    project: proj06
 spec:
+  storageClassName: ""
+  volumeName: postgres-pv-vdb
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
-  storageClassName: local-path
+      storage: 10Gi
