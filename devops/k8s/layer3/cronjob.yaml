@@ -22,16 +22,13 @@ spec:
         spec:
           restartPolicy: Never
           containers:
-            - name: batch-pipeline
-              image: ghcr.io/riyampatel2001/mlops-project-proj06/batch-pipeline:latest
+            - name: layer3-pipeline
+              image: ghcr.io/riyampatel2001/mlops-project-proj06/layer3-pipeline:latest
               imagePullPolicy: Always
-              command: ["python", "batch_pipeline.py"]
-              envFrom:
-                - secretRef:
-                    name: proj06-env
+              command: ["python", "-m", "model_pipeline.layer3.pipeline"]
               env:
-                - name: FEEDBACK_URL
-                  value: "http://transaction-classifier.mlops.svc.cluster.local:8000/feedback/export"
+                - name: MLFLOW_TRACKING_URI
+                  value: "http://mlflow-proj06.mlops.svc.cluster.local:5000"
                 - name: MINIO_ENDPOINT
                   value: "http://minio.mlops.svc.cluster.local:9000"
                 - name: MINIO_ACCESS_KEY
@@ -49,12 +46,6 @@ spec:
                     secretKeyRef:
                       name: anthropic-credentials
                       key: api-key
-                - name: MINIO_BUCKET
-                  value: "data"
-                - name: MINIO_PREFIX
-                  value: "data/retraining"
-                - name: MLFLOW_TRACKING_URI
-                  value: "http://mlflow-proj06.mlops.svc.cluster.local:5000"
                 - name: POSTGRES_HOST
                   value: "postgres.mlops.svc.cluster.local"
                 - name: POSTGRES_PORT
@@ -74,17 +65,25 @@ spec:
                     secretKeyRef:
                       name: postgres-credentials
                       key: password
+                - name: POSTGRES_DSN
+                  value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres.mlops.svc.cluster.local:5432/$(POSTGRES_DB)"
               volumeMounts:
                 - name: artifacts
                   mountPath: /app/artifacts
+                - name: config
+                  mountPath: /app/model_pipeline/layer2/config.yaml
+                  subPath: config.yaml
               resources:
                 requests:
                   cpu: "500m"
-                  memory: "512Mi"
+                  memory: "1Gi"
                 limits:
                   cpu: "1000m"
-                  memory: "2Gi"
+                  memory: "4Gi"
           volumes:
             - name: artifacts
               persistentVolumeClaim:
                 claimName: artifacts-pvc
+            - name: config
+              configMap:
+                name: layer2-config
