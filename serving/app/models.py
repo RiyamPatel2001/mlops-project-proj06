@@ -79,8 +79,8 @@ class FeedbackExportRow(BaseModel):
 
 class TagExampleRequest(BaseModel):
     payee: str
-    amount: float
-    date: str
+    amount: Optional[float] = None
+    date: Optional[str] = None
     custom_category: str
 
 

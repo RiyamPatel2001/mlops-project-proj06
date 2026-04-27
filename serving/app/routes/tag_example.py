@@ -23,12 +23,14 @@ async def tag_example(
     req: TagExampleRequest,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> TagExampleResponse:
-    text = (
-        f"{normalize_payee(req.payee)} "
-        f"{bin_amount(abs(req.amount))} "
-        f"{day_of_week(req.date)} "
-        f"{day_of_month(req.date)}"
-    )
+    text_parts = [normalize_payee(req.payee)]
+    if req.amount is not None:
+        text_parts.append(bin_amount(abs(req.amount)))
+    if req.date:
+        text_parts.append(day_of_week(req.date))
+        text_parts.append(str(day_of_month(req.date)))
+
+    text = " ".join(text_parts)
     embedding = await layer2.get_embedding(text)
 
     row_id = await db.insert_layer2_example(

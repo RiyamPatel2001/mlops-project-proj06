@@ -248,9 +248,6 @@ export async function syncMlCategoryFeedbackOnEdit({
   }
 
   const finalLabel = getCategoryNameById(categoryGroups, nextCategoryId);
-  if (normalizeCategoryName(finalLabel) === prediction.predictedCategory) {
-    return false;
-  }
 
   await submitFeedback({
     transaction_id: transaction.id,
