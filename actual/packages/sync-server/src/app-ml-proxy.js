@@ -121,6 +121,26 @@ function buildSignedIdentity(req, session) {
   };
 }
 
+function buildUpstreamHeaders(req, signedIdentity) {
+  const headers = {
+    ...signedIdentity.headers,
+  };
+
+  const accept = req.headers.accept;
+  if (typeof accept === 'string' && accept.length > 0) {
+    headers.accept = accept;
+  }
+
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const contentType = req.headers['content-type'];
+    if (typeof contentType === 'string' && contentType.length > 0) {
+      headers['content-type'] = contentType;
+    }
+  }
+
+  return headers;
+}
+
 app.use('/', async (req, res) => {
   const session = validateSession(req, res);
   if (!session) {
@@ -138,17 +158,8 @@ app.use('/', async (req, res) => {
     return;
   }
 
-  const requestHeaders = { ...req.headers };
-  delete requestHeaders.host;
-  delete requestHeaders['content-length'];
-  delete requestHeaders.authorization;
-  delete requestHeaders['x-actual-token'];
-  delete requestHeaders[ML_PROXY_USER_ID_HEADER];
-  delete requestHeaders[ML_PROXY_USERNAME_HEADER];
-  delete requestHeaders[ML_PROXY_TIMESTAMP_HEADER];
-  delete requestHeaders[ML_PROXY_SIGNATURE_HEADER];
-
   const body = createProxyBody(req);
+  const upstreamHeaders = buildUpstreamHeaders(req, signedIdentity);
   let lastError = null;
   let lastTarget = null;
 
@@ -158,10 +169,7 @@ app.use('/', async (req, res) => {
     try {
       const response = await fetch(url, {
         method: req.method,
-        headers: {
-          ...requestHeaders,
-          ...signedIdentity.headers,
-        },
+        headers: upstreamHeaders,
         body,
       });
 
