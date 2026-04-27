@@ -1,0 +1,131 @@
+# =============================================================================
+# Static PersistentVolumes — all on vdb Cinder volume (/mnt/docker-storage)
+# =============================================================================
+# vdb is the 150GB Cinder block volume attached at /mnt/docker-storage.
+# Using static hostPath PVs so all persistent data lives on vdb, not on
+# the 37GB root vda3 (which was 78% full with local-path PVCs).
+#
+# Each PV is pre-provisioned; each PVC binds via volumeName + claimRef.
+# Data directories: /mnt/docker-storage/k3s-pv/<service>/
+# =============================================================================
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: minio-pv-vdb
+  labels:
+    project: proj06
+    tier: storage
+spec:
+  capacity:
+    storage: 30Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: 
+  hostPath:
+    path: /mnt/docker-storage/k3s-pv/minio
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: mlops
+    name: minio-pvc
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgres-pv-vdb
+  labels:
+    project: proj06
+    tier: storage
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: 
+  hostPath:
+    path: /mnt/docker-storage/k3s-pv/postgres
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: mlops
+    name: postgres-pvc
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mlflow-artifacts-pv-vdb
+  labels:
+    project: proj06
+    tier: storage
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: 
+  hostPath:
+    path: /mnt/docker-storage/k3s-pv/mlflow-artifacts
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: mlops
+    name: artifacts-pvc
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: actualbudget-data-pv-vdb
+  labels:
+    project: proj06
+    tier: storage
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: 
+  hostPath:
+    path: /mnt/docker-storage/k3s-pv/actualbudget-data
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: mlops
+    name: actualbudget-data-pvc
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-pv-vdb
+  labels:
+    project: proj06
+    tier: storage
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: 
+  hostPath:
+    path: /mnt/docker-storage/k3s-pv/data
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: mlops
+    name: data-pvc
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: serving-models-pv-vdb
+  labels:
+    project: proj06
+    tier: storage
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: 
+  hostPath:
+    path: /mnt/docker-storage/k3s-pv/serving-models
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: mlops
+    name: serving-models-pvc

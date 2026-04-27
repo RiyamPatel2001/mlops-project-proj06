@@ -1,21 +1,15 @@
-# =============================================================================
-# Transaction Classifier (FastAPI) — PersistentVolumeClaim
-# =============================================================================
-# Stores model artifacts (FastText .bin, label_map.json, etc.)
-# Populated after cluster is up — see devops/README.md "Populate model files"
-# =============================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: serving-models-pvc
   namespace: mlops
   labels:
-    app: transaction-classifier
     project: proj06
 spec:
+  storageClassName: ""
+  volumeName: serving-models-pv-vdb
   accessModes:
     - ReadWriteOnce
-  storageClassName: local-path
   resources:
     requests:
-      storage: 5Gi
+      storage: 10Gi

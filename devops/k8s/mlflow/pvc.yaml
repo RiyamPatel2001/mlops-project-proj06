@@ -1,3 +1,15 @@
-# MLflow no longer needs local PVCs — artifacts go to MinIO (s3://mlflow-artifacts/)
-# and metadata goes to PostgreSQL. Both are deployed as separate services.
-# See devops/k8s/postgres/ and devops/k8s/minio/ for their PVCs.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: artifacts-pvc
+  namespace: mlops
+  labels:
+    project: proj06
+spec:
+  storageClassName: ""
+  volumeName: mlflow-artifacts-pv-vdb
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
