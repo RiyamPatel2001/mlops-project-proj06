@@ -17,7 +17,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: ingestion-pipeline
-          image: ghcr.io/riyampatel2001/mlops-project-proj06/ingestion-pipeline:latest
+          image: ghcr.io/riyampatel2001/mlops-project-proj06/data-ingestion:latest
           resources:
             requests:
               cpu: "500m"

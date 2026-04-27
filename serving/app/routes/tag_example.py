@@ -6,6 +6,12 @@ from fastapi import APIRouter, Depends
 
 from app import db, layer2
 from app.auth import AuthenticatedUser, require_authenticated_user
+from app.feature_computation import (
+    bin_amount,
+    day_of_month,
+    day_of_week,
+    normalize_payee,
+)
 from app.models import TagExampleRequest, TagExampleResponse
 
 logger = logging.getLogger(__name__)
@@ -17,7 +23,13 @@ async def tag_example(
     req: TagExampleRequest,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> TagExampleResponse:
-    embedding = await layer2.get_embedding(req.payee)
+    text = (
+        f"{normalize_payee(req.payee)} "
+        f"{bin_amount(abs(req.amount))} "
+        f"{day_of_week(req.date)} "
+        f"{day_of_month(req.date)}"
+    )
+    embedding = await layer2.get_embedding(text)
 
     row_id = await db.insert_layer2_example(
         user_id=current_user.user_id,

@@ -7,7 +7,7 @@ metadata:
     app: layer2-store
     project: proj06
 spec:
-  replicas: 1
+  replicas: 0
   selector:
     matchLabels:
       app: layer2-store
@@ -39,7 +39,7 @@ spec:
             - name: POSTGRES_HOST
               value: postgres.mlops.svc.cluster.local
             - name: POSTGRES_PORT
-              value: 5432
+              value: "5432"
             - name: POSTGRES_DB
               valueFrom:
                 secretKeyRef:

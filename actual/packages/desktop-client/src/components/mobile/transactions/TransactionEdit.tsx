@@ -56,6 +56,7 @@ import {
 import type {
   AccountEntity,
   CategoryEntity,
+  CategoryGroupEntity,
   PayeeEntity,
   TransactionEntity,
 } from '@actual-app/core/types/models';
@@ -96,8 +97,12 @@ import { addNotification } from '#notifications/notificationsSlice';
 import { useSavePayeeLocationMutation } from '#payees';
 import { locationService } from '#payees/location';
 import { aqlQuery } from '#queries/aqlQuery';
-import { useDispatch, useSelector } from '#redux';
+import { useDispatch, useSelector, useStore } from '#redux';
 import { setLastTransaction } from '#transactions/transactionsSlice';
+import {
+  autoCategorizeTransaction,
+  syncMlCategoryFeedbackOnEdit,
+} from '../../../ml/transactionCategory';
 
 import { FocusableAmountInput } from './FocusableAmountInput';
 
@@ -1417,6 +1422,7 @@ function isTemporary(transaction: TransactionEntity) {
 
 type TransactionEditUnconnectedProps = {
   categories: CategoryEntity[];
+  categoryGroups: CategoryGroupEntity[];
   accounts: AccountEntity[];
   payees: PayeeEntity[];
   lastTransaction: TransactionEntity | null;
@@ -1425,6 +1431,7 @@ type TransactionEditUnconnectedProps = {
 
 function TransactionEditUnconnected({
   categories,
+  categoryGroups,
   accounts,
   payees,
   lastTransaction,
@@ -1435,6 +1442,7 @@ function TransactionEditUnconnected({
   const { state: locationState } = useLocation();
   const [searchParams] = useSearchParams();
   const dispatch = useDispatch();
+  const store = useStore();
   const updatePayeeLocationMutation = useSavePayeeLocationMutation();
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState<TransactionEntity[]>([]);
@@ -1638,32 +1646,57 @@ function TransactionEditUnconnected({
       }
 
       const changes = diffItems(fetchedTransactions || [], newTransactions);
+      let persisted: Awaited<ReturnType<typeof send>> | null = null;
       if (
         changes.added.length > 0 ||
         changes.updated.length > 0 ||
         changes.deleted.length
       ) {
-        const _remoteUpdates = await send('transactions-batch-update', {
+        persisted = await send('transactions-batch-update', {
           added: changes.added,
           deleted: changes.deleted,
           updated: changes.updated,
         });
-
-        // if (onTransactionsChange) {
-        //   onTransactionsChange({
-        //     ...changes,
-        //     updated: changes.updated.concat(remoteUpdates),
-        //   });
-        // }
       }
 
       if (isAdding.current) {
-        // The first one is always the "parent" and the only one we care
-        // about
-        dispatch(setLastTransaction({ transaction: newTransactions[0] }));
+        const addedTransaction = persisted?.added?.find(t => !t.is_child);
+        const transactionToStore = addedTransaction || newTransactions[0];
+
+        if (addedTransaction) {
+          await autoCategorizeTransaction({
+            transaction: addedTransaction,
+            accounts,
+            payees,
+            categoryGroups,
+            dispatch,
+          });
+        }
+
+        dispatch(setLastTransaction({ transaction: transactionToStore }));
+      } else if (changes.updated.some(change => 'category' in change)) {
+        const updatedCategoryTransaction = changes.updated.find(
+          change => change.category !== undefined,
+        );
+
+        if (updatedCategoryTransaction) {
+          const latestTransaction = newTransactions.find(
+            transaction => transaction.id === updatedCategoryTransaction.id,
+          );
+
+          if (latestTransaction) {
+            await syncMlCategoryFeedbackOnEdit({
+              dispatch,
+              state: store.getState(),
+              transaction: latestTransaction,
+              categoryGroups,
+              nextCategoryId: latestTransaction.category,
+            });
+          }
+        }
       }
     },
-    [dispatch, fetchedTransactions],
+    [accounts, categoryGroups, dispatch, fetchedTransactions, payees, store],
   );
 
   const onDelete = useCallback(
@@ -1877,11 +1910,21 @@ function TransactionEditUnconnected({
 
 type TransactionEditProps = Omit<
   TransactionEditUnconnectedProps,
-  'categories' | 'accounts' | 'payees' | 'lastTransaction' | 'dateFormat'
+  | 'categories'
+  | 'categoryGroups'
+  | 'accounts'
+  | 'payees'
+  | 'lastTransaction'
+  | 'dateFormat'
 >;
 
 export const TransactionEdit = (props: TransactionEditProps) => {
-  const { data: { list: categories } = { list: [] } } = useCategories();
+  const {
+    data: { list: categories, grouped: categoryGroups } = {
+      list: [],
+      grouped: [],
+    },
+  } = useCategories();
   const { data: payees = [] } = usePayees();
   const lastTransaction = useSelector(
     state => state.transactions.lastTransaction,
@@ -1894,6 +1937,7 @@ export const TransactionEdit = (props: TransactionEditProps) => {
       <TransactionEditUnconnected
         {...props}
         categories={categories}
+        categoryGroups={categoryGroups}
         payees={payees}
         lastTransaction={lastTransaction}
         accounts={accounts}

@@ -36,8 +36,12 @@ import { useNavigate } from '#hooks/useNavigate';
 import { useSyncedPref } from '#hooks/useSyncedPref';
 import { pushModal } from '#modals/modalsSlice';
 import { addNotification } from '#notifications/notificationsSlice';
-import { useDispatch } from '#redux';
+import { useDispatch, useStore } from '#redux';
 
+import {
+  autoCategorizeTransaction,
+  syncMlCategoryFeedbackOnEdit,
+} from '../../ml/transactionCategory';
 import { TransactionTable } from './TransactionsTable';
 import type { TransactionTableProps } from './TransactionsTable';
 // When data changes, there are two ways to update the UI:
@@ -60,11 +64,15 @@ import type { TransactionTableProps } from './TransactionsTable';
 // differently than a full refresh. It's up to you to decide which
 // one to use when doing updates.
 
-async function saveDiff(diff, learnCategories) {
-  const remoteUpdates = await send('transactions-batch-update', {
+async function persistDiff(diff, learnCategories) {
+  return send('transactions-batch-update', {
     ...diff,
     learnCategories,
   });
+}
+
+async function saveDiff(diff, learnCategories) {
+  const remoteUpdates = await persistDiff(diff, learnCategories);
 
   if (remoteUpdates && remoteUpdates.updated.length > 0) {
     return { updates: remoteUpdates };
@@ -327,6 +335,7 @@ export function TransactionList({
   const { t } = useTranslation();
 
   const dispatch = useDispatch();
+  const store = useStore();
   const navigate = useNavigate();
   const [learnCategories = 'true'] = useSyncedPref('learn-categories');
   const isLearnCategoriesEnabled = String(learnCategories) === 'true';
@@ -407,24 +416,62 @@ export function TransactionList({
             );
           },
           async () => {
-            await saveDiff(
+            const persisted = await persistDiff(
               { added: newTransactions },
               isLearnCategoriesEnabled,
             );
+            const addedTransaction = persisted?.added?.find(t => !t.is_child);
+            if (addedTransaction) {
+              await autoCategorizeTransaction({
+                transaction: addedTransaction,
+                accounts,
+                payees,
+                categoryGroups,
+                dispatch,
+              });
+            }
           },
         );
         return;
       }
 
-      await saveDiff({ added: newTransactions }, isLearnCategoriesEnabled);
+      const persisted = await persistDiff(
+        { added: newTransactions },
+        isLearnCategoriesEnabled,
+      );
+      const addedTransaction = persisted?.added?.find(t => !t.is_child);
+      if (addedTransaction) {
+        await autoCategorizeTransaction({
+          transaction: addedTransaction,
+          accounts,
+          payees,
+          categoryGroups,
+          dispatch,
+        });
+      }
       onRefetch();
     },
-    [isLearnCategoriesEnabled, onRefetch, promptToConvertToSchedule],
+    [
+      accounts,
+      categoryGroups,
+      dispatch,
+      isLearnCategoriesEnabled,
+      onRefetch,
+      payees,
+      promptToConvertToSchedule,
+    ],
   );
 
   const onSave = useCallback(
-    async (transaction: TransactionEntity) => {
+    async (
+      transaction: TransactionEntity,
+      _subtransactions: TransactionEntity[] | null,
+      updatedFieldName: string,
+    ) => {
       const saveTransaction = async () => {
+        const previousTransaction = transactionsLatest.current.find(
+          t => t.id === transaction.id,
+        );
         const changes = updateTransaction(
           transactionsLatest.current,
           transaction,
@@ -436,15 +483,42 @@ export function TransactionList({
           if (dateChanged) {
             changes.diff.updated[0].sort_order = Date.now();
             await saveDiff(changes.diff, isLearnCategoriesEnabled);
+            if (
+              updatedFieldName === 'category' &&
+              previousTransaction?.category !== transaction.category
+            ) {
+              await syncMlCategoryFeedbackOnEdit({
+                dispatch,
+                state: store.getState(),
+                transaction,
+                categoryGroups,
+                nextCategoryId: transaction.category,
+              });
+            }
             onRefetch();
           } else {
             onChange(changes.newTransaction, changes.data);
-            void saveDiffAndApply(
+            const applyPromise = saveDiffAndApply(
               changes.diff,
               changes,
               onChange,
               isLearnCategoriesEnabled,
             );
+            if (
+              updatedFieldName === 'category' &&
+              previousTransaction?.category !== transaction.category
+            ) {
+              await applyPromise;
+              await syncMlCategoryFeedbackOnEdit({
+                dispatch,
+                state: store.getState(),
+                transaction,
+                categoryGroups,
+                nextCategoryId: transaction.category,
+              });
+            } else {
+              void applyPromise;
+            }
           }
         }
       };
@@ -475,7 +549,15 @@ export function TransactionList({
 
       await saveTransaction();
     },
-    [isLearnCategoriesEnabled, onChange, onRefetch, promptToConvertToSchedule],
+    [
+      categoryGroups,
+      dispatch,
+      isLearnCategoriesEnabled,
+      onChange,
+      onRefetch,
+      promptToConvertToSchedule,
+      store,
+    ],
   );
 
   const onAddSplit = useCallback(

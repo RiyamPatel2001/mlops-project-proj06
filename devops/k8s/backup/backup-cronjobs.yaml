@@ -31,6 +31,13 @@ spec:
             project: proj06
         spec:
           restartPolicy: Never
+          initContainers:
+            - name: mc-installer
+              image: minio/mc:latest
+              command: [/bin/sh, -c, cp /usr/bin/mc /mc-bin/mc]
+              volumeMounts:
+                - name: mc-bin
+                  mountPath: /mc-bin
           containers:
             - name: pg-backup
               image: postgres:16-alpine
@@ -48,10 +55,6 @@ spec:
                     "${POSTGRES_DB}" | gzip > "${DUMP_FILE}"
 
                   echo "Uploading to MinIO..."
-                  # Install mc
-                  wget -q https://dl.min.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc
-                  chmod +x /usr/local/bin/mc
-
                   mc alias set minio http://minio:9000 \
                     "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}" --quiet
 
@@ -63,6 +66,10 @@ spec:
                     xargs -I{} mc rm "minio/data/backups/postgres/{}" --quiet 2>/dev/null || true
 
                   echo "Postgres backup complete: $(basename ${DUMP_FILE})"
+              volumeMounts:
+                - name: mc-bin
+                  mountPath: /usr/local/bin/mc
+                  subPath: mc
               env:
                 - name: POSTGRES_USER
                   valueFrom:
@@ -96,6 +103,9 @@ spec:
                 limits:
                   cpu: "300m"
                   memory: "256Mi"
+          volumes:
+            - name: mc-bin
+              emptyDir: {}
 ---
 # ── MinIO mirror backup ───────────────────────────────────────────────────────
 apiVersion: batch/v1
