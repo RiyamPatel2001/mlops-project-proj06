@@ -1,4 +1,4 @@
-import { getAccountDb, isAdmin } from '#account-db';
+import { getAccountDb } from '#account-db';
 import { FileNotFound, GenericFileError } from '#app-sync/errors';
 
 class FileBase {
@@ -122,27 +122,22 @@ class FilesService {
   }
 
   find({ userId, limit = 1000 }) {
-    const canSeeAll = isAdmin(userId);
-
-    return (
-      canSeeAll
-        ? this.accountDb.all('SELECT * FROM files WHERE deleted = 0 LIMIT ?', [
-            limit,
-          ])
-        : this.accountDb.all(
-            `SELECT files.*
-        FROM files
-        WHERE files.owner = ? and deleted = 0
-      UNION
-       SELECT files.*
-        FROM files
-        JOIN user_access
-          ON user_access.file_id = files.id
-          AND user_access.user_id = ?
-       WHERE files.deleted = 0 LIMIT ?`,
-            [userId, userId, limit],
-          )
-    ).map(item => this.validate(item));
+    return this.accountDb
+      .all(
+        `SELECT files.*
+         FROM files
+         WHERE files.owner = ? AND files.deleted = 0
+         UNION
+         SELECT files.*
+         FROM files
+         JOIN user_access
+           ON user_access.file_id = files.id
+           AND user_access.user_id = ?
+         WHERE files.deleted = 0
+         LIMIT ?`,
+        [userId, userId, limit],
+      )
+      .map(item => this.validate(item));
   }
 
   findUsersWithAccess(fileId) {

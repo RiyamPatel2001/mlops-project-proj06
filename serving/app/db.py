@@ -93,11 +93,17 @@ CREATE INDEX IF NOT EXISTS idx_layer3_suggestions_user_status
     ON layer3_suggestions (user_id, status);
 """
 
+_DROP_UNUSED_AUTH_TABLES_DDL = """
+DROP TABLE IF EXISTS auth_sessions;
+DROP TABLE IF EXISTS auth_users;
+"""
+
 
 async def ensure_tables() -> None:
     if not _pool:
         return
     async with _pool.acquire() as conn:
+        await conn.execute(_DROP_UNUSED_AUTH_TABLES_DDL)
         await conn.execute(_FEEDBACK_DDL)
         await conn.execute(_LAYER2_DDL)
         await conn.execute(_SUGGESTION_DDL)
