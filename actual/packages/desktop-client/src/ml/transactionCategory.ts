@@ -229,6 +229,22 @@ export function getMlCategoryPrediction(
   return state.transactions.mlCategoryPredictions[transactionId] ?? null;
 }
 
+export function shouldSyncMlCategoryFeedbackOnCategorySave({
+  updatedFieldName,
+  state,
+  transactionId,
+}: {
+  updatedFieldName: string;
+  state: RootState;
+  transactionId: TransactionEntity['id'];
+}) {
+  if (updatedFieldName !== 'category') {
+    return false;
+  }
+
+  return !!getMlCategoryPrediction(state, transactionId);
+}
+
 export async function syncMlCategoryFeedbackOnEdit({
   dispatch,
   state,
