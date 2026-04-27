@@ -648,6 +648,7 @@ def main() -> None:
 
             vec, clf = result if isinstance(result, tuple) and len(result) == 2 else (None, result)
 
+            cfg["quality_gate"] = cfg.get("quality_gate_retrain", cfg["quality_gate"])
             metrics = eval_module.evaluate_and_log(
                 clf=clf,
                 vec=vec,

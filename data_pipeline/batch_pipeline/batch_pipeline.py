@@ -10,6 +10,9 @@ Retraining candidates: reviewed_by_user=TRUE AND source=layer1
 These are transactions where a real user explicitly confirmed or corrected
 the model's prediction — the highest quality signal for retraining.
 
+Custom categories (not in the 29 base categories) are resolved to the closest
+base category via a Claude API call before the data reaches the retraining job.
+
 Output: versioned CSV file uploaded to MinIO at data/retraining/
 
 Usage:
@@ -23,6 +26,7 @@ Environment variables:
     MINIO_ACCESS_KEY  — MinIO access key (default: minioadmin)
     MINIO_SECRET_KEY  — MinIO secret key (default: minioadmin123)
     MINIO_BUCKET      — MinIO bucket (default: data)
+    ANTHROPIC_API_KEY — Anthropic API key for custom category resolution
 """
 
 import os
@@ -38,6 +42,7 @@ from pathlib import Path
 
 import boto3
 from botocore.client import Config
+import anthropic
 
 random.seed(42)
 
@@ -48,6 +53,33 @@ MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "minioadmin123")
 MINIO_BUCKET     = os.environ.get("MINIO_BUCKET",     "data")
 MINIO_PREFIX     = os.environ.get("MINIO_PREFIX", "retraining")
+
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+# ── BASE CATEGORIES ───────────────────────────────────────────────────────────
+
+BASE_CATEGORIES = [
+    "Groceries", "Dining Out", "Transport", "Insurance", "Streaming",
+    "Personal Care", "Public Transit", "Household Supplies", "Savings",
+    "Entertainment", "Clothing", "Charitable Giving", "Utilities",
+    "Healthcare", "Other", "Home Improvement", "Phone & Internet",
+    "Tobacco", "Pets", "Rent / Mortgage", "Alcohol", "Health Insurance",
+    "Travel", "Vehicle Insurance", "Property Tax", "Reading",
+    "Vehicle Payment", "Childcare", "Education",
+]
+
+BASE_CATEGORIES_SET = set(BASE_CATEGORIES)
+
+_RESOLVE_SYSTEM_PROMPT = (
+    "You are a financial transaction categorizer. Your only job is to map a "
+    "user-defined custom budget category to the single best-matching category "
+    "from the following fixed list:\n\n"
+    + "\n".join(f"- {c}" for c in BASE_CATEGORIES)
+    + "\n\nRules:\n"
+    "1. Reply with ONLY the exact category name from the list above — nothing else.\n"
+    "2. If no category fits well, reply with: Other\n"
+    "3. Never invent a new category name."
+)
 
 
 def get_minio_client():
@@ -81,17 +113,58 @@ def upload_json_to_minio(client, content: dict, key: str):
     print(f"[batch] Uploaded to MinIO: s3://{MINIO_BUCKET}/{key}")
 
 
+# ── CUSTOM CATEGORY RESOLUTION ────────────────────────────────────────────────
+
+def resolve_category(label: str, client: anthropic.Anthropic, cache: dict) -> str:
+    """
+    Map a label to one of the 29 BASE_CATEGORIES.
+
+    - Already a base category  → returned immediately, no API call.
+    - Seen before this run      → returned from cache, no API call.
+    - New custom label          → Claude API call with prompt-cached system prompt.
+    - API failure / bad reply   → falls back to "Other".
+    """
+    if label in BASE_CATEGORIES_SET:
+        return label
+
+    if label in cache:
+        return cache[label]
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=20,
+            system=[
+                {
+                    "type": "text",
+                    "text": _RESOLVE_SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[
+                {
+                    "role": "user",
+                    "content": f'Custom category: "{label}"',
+                }
+            ],
+        )
+        result = response.content[0].text.strip()
+        resolved = result if result in BASE_CATEGORIES_SET else "Other"
+    except Exception as e:
+        print(f"[batch]   WARNING: API call failed for '{label}': {e} — defaulting to 'Other'")
+        resolved = "Other"
+
+    cache[label] = resolved
+    return resolved
+
+
 # ── MOCK FEEDBACK STORE ───────────────────────────────────────────────────────
 
 def generate_mock_feedback(n=2000):
-    categories = [
-        "Groceries", "Dining Out", "Transport", "Insurance", "Streaming",
-        "Personal Care", "Public Transit", "Household Supplies", "Savings",
-        "Entertainment", "Clothing", "Charitable Giving", "Utilities",
-        "Healthcare", "Other", "Home Improvement", "Phone & Internet",
-        "Tobacco", "Pets", "Rent / Mortgage", "Alcohol", "Health Insurance",
-        "Travel", "Vehicle Insurance", "Property Tax", "Reading",
-        "Vehicle Payment", "Childcare", "Education"
+    # Mix of base categories and custom ones to exercise the resolver
+    categories = BASE_CATEGORIES + [
+        "Pet Supplies", "Gaming", "Gym & Fitness", "Coffee Shops",
+        "Baby Supplies", "Home Office", "Side Hustle",
     ]
     payees = [
         "WHOLE FOODS MKT", "STARBUCKS #12345", "SHELL OIL 12345678",
@@ -181,11 +254,50 @@ def run_pipeline(feedback_rows, version=None):
     print(f"[batch]   Dropped {dropped} records with missing fields")
     print(f"[batch]   Clean candidates: {len(clean):,}")
 
-    # Minimum records gate
     MIN_RECORDS = int(os.environ.get("MIN_RECORDS", 100))
     if len(clean) < MIN_RECORDS:
         print(f"[batch] ERROR: Only {len(clean)} clean records — minimum is {MIN_RECORDS}. Exiting.")
         return
+
+    # Step 2.5: Resolve custom categories → base categories via Claude
+    print("[batch] Resolving custom categories...")
+    anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
+    resolve_cache: dict[str, str] = {}
+
+    n_already_base = 0
+    n_remapped     = 0
+    n_fallback     = 0
+    custom_resolutions: dict[str, str] = {}  # custom_label -> resolved_label
+
+    for r in clean:
+        label = r["final_label"]
+
+        if label in BASE_CATEGORIES_SET:
+            n_already_base += 1
+            continue
+
+        if anthropic_client is None:
+            print(f"[batch]   WARNING: ANTHROPIC_API_KEY not set — custom label '{label}' defaulted to 'Other'")
+            r["final_label"] = "Other"
+            n_fallback += 1
+            continue
+
+        resolved = resolve_category(label, anthropic_client, resolve_cache)
+        r["final_label"] = resolved
+        custom_resolutions[label] = resolved
+
+        if resolved == "Other":
+            n_fallback += 1
+        else:
+            n_remapped += 1
+
+    print(f"[batch]   Already base category : {n_already_base:,}")
+    print(f"[batch]   Remapped via Claude   : {n_remapped:,}")
+    print(f"[batch]   Fell back to 'Other'  : {n_fallback:,}")
+    if custom_resolutions:
+        print("[batch]   Resolution map:")
+        for custom, base in sorted(custom_resolutions.items()):
+            print(f"[batch]     '{custom}' → '{base}'")
 
     # Step 3: Class distribution check
     cat_counts = Counter(r["final_label"] for r in clean)
@@ -194,7 +306,6 @@ def run_pipeline(feedback_rows, version=None):
     if low_cats:
         print(f"[batch]   WARNING: Low sample categories: {low_cats}")
 
-    # Category coverage gate
     if len(cat_counts) < 10:
         print(f"[batch] ERROR: Only {len(cat_counts)} categories represented — minimum is 10. Exiting.")
         return
@@ -235,7 +346,6 @@ def run_pipeline(feedback_rows, version=None):
     csv_key      = f"{MINIO_PREFIX}/retraining_dataset_v{version}.csv"
     manifest_key = f"{MINIO_PREFIX}/retraining_manifest_v{version}.json"
 
-    # Build CSV string
     fieldnames = [
         "transaction_id",
         "user_id",
@@ -252,22 +362,23 @@ def run_pipeline(feedback_rows, version=None):
     writer.writerows(all_out)
     csv_content = csv_buffer.getvalue()
 
-    # Build manifest
     manifest = {
-        "version":          version,
-        "created_at":       datetime.utcnow().isoformat(),
-        "total_records":    len(all_out),
-        "train_records":    len(train_out),
-        "val_records":      len(val_out),
-        "train_date_range": [train_rows[0]["date"], train_rows[-1]["date"]],
-        "val_date_range":   [val_rows[0]["date"],   val_rows[-1]["date"]],
-        "categories":       dict(cat_counts),
-        "minio_path":       f"s3://{MINIO_BUCKET}/{csv_key}",
-        "filter":           "reviewed_by_user=TRUE AND source=layer1",
-        "split_strategy":   "temporal (80/20)",
+        "version":                       version,
+        "created_at":                    datetime.utcnow().isoformat(),
+        "total_records":                 len(all_out),
+        "train_records":                 len(train_out),
+        "val_records":                   len(val_out),
+        "train_date_range":              [train_rows[0]["date"], train_rows[-1]["date"]],
+        "val_date_range":                [val_rows[0]["date"],   val_rows[-1]["date"]],
+        "categories":                    dict(cat_counts),
+        "custom_category_remapped":      n_remapped,
+        "custom_category_fallback_other": n_fallback,
+        "custom_category_resolutions":   custom_resolutions,
+        "minio_path":                    f"s3://{MINIO_BUCKET}/{csv_key}",
+        "filter":                        "reviewed_by_user=TRUE AND source=layer1",
+        "split_strategy":                "temporal (80/20)",
     }
 
-    # Upload both to MinIO
     minio = get_minio_client()
     upload_to_minio(minio, csv_content, csv_key)
     upload_json_to_minio(minio, manifest, manifest_key)

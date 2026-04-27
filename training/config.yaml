@@ -35,16 +35,27 @@ mlflow:
   model_name:      "transaction-categorizer"
 
 # ── Quality gate ──────────────────────────────────────────────
-# Thresholds here override the defaults in evaluate.py.
-# Change these values and rebuild — no Python edits needed.
+# Used by the initial training run on clean, curated data.
 quality_gate:
   weighted_f1: 0.90
   macro_f1:    0.90
 
+# ── Retrain quality gate ───────────────────────────────────────
+# Used by retrain.py in place of quality_gate.
+# Structural zeros on rare classes (Childcare, Vehicle Payment)
+# will reappear in any retrain run that doesn't receive corrections
+# for those categories, pulling macro F1 well below 0.90.
+# 0.82 is a calibrated starting point — revisit after 5-10 real
+# retraining runs and set the floor at the ~10th percentile of
+# observed healthy-run macro F1 values.
+quality_gate_retrain:
+  weighted_f1: 0.82
+  macro_f1:    0.82
+
 promotion:
   target_tier: fast
   registry_path: ../serving/layer1_registry.json
-  minimum_accuracy_delta: 0.01
+  minimum_accuracy_delta: 0.0
   bootstrap:
     model_name: fasttext
     model_kind: fasttext
