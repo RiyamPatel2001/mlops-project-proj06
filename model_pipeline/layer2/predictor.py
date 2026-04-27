@@ -22,6 +22,7 @@ import mlflow
 import fasttext
 import numpy as np
 
+from model_pipeline.layer2.build_store import make_embed_text
 from model_pipeline.layer2.embedder import Embedder
 from model_pipeline.layer2 import user_store as store_module
 from model_pipeline.layer2.matcher import get_top_k, majority_vote
@@ -73,6 +74,8 @@ class Predictor:
         payee: str,
         amount: float,
         date: str,
+        day_of_week: str = "",
+        day_of_month: int = 0,
     ) -> dict:
         """
         Predict category for a transaction. Combines Layer 1 and Layer 2.
@@ -95,13 +98,13 @@ class Predictor:
             }
             # Still add to store to accumulate history
             norm_payee = normalize_payee(payee)
-            embedding = self.embedder.embed(norm_payee)
+            embedding = self.embedder.embed(make_embed_text(payee, amount, day_of_week, day_of_month))
             store_module.add_transaction(user_id, norm_payee, embedding, l1_category)
             return result
 
         # Step 3: Embed query
         norm_payee = normalize_payee(payee)
-        query_embedding = self.embedder.embed(norm_payee)
+        query_embedding = self.embedder.embed(make_embed_text(payee, amount, day_of_week, day_of_month))
 
         # Step 4 & 5: Get top-k neighbors and majority vote
         user_data = store_module.get_user_store(user_id)
