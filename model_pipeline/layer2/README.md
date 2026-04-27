@@ -19,9 +19,10 @@ Incoming transaction (payee, user_id)
     No ──┴── Yes
     │         │
     │         ▼
-    │  ┌─────────────────┐
-    │  │  Embed payee    │  all-mpnet-base-v2 → 768-dim unit vector
-    │  └────────┬────────┘
+    │  ┌──────────────────────────────────────────────┐
+    │  │  Embed composite string                      │  all-mpnet-base-v2 → 768-dim unit vector
+    │  │  payee + amount_bucket + day_of_week + dom   │
+    │  └────────┬─────────────────────────────────────┘
     │           │
     │           ▼
     │  ┌─────────────────┐
@@ -76,6 +77,8 @@ result = predictor.predict(
     payee="Whole Foods Market",
     amount=54.20,
     date="2024-03-15",
+    day_of_week="Friday",   # full name, title-cased — matches feature_computation.py
+    day_of_month=15,        # will be added to composite embedding; 0 until data pipeline ships dom
 )
 # result keys: transaction_id, user_id, prediction_category,
 #              confidence, model_version, source ("layer1" or "layer2")
@@ -145,7 +148,7 @@ docker run --rm --network host \
     --experiment-suffix _cex
 ```
 
-Results logged to MLflow under experiment `layer2-evaluation_cex`.
+Results logged to MLflow under experiment `layer2-evaluation` with tag `eval_split=cex`.
 
 ---
 
@@ -171,7 +174,7 @@ docker run --rm --network host \
 | `--config` | Path to `config.yaml` (default: `model_pipeline/layer2/config.yaml`) |
 | `--eval-csv` | MinIO object path of a pre-split CSV; omit to use the default 70/30 split |
 | `--run-name` | MLflow run name |
-| `--experiment-suffix` | Appended to `experiment_name` from config (e.g. `_cex`) |
+| `--experiment-suffix` | Stored as `eval_split` tag on the run (e.g. `_cex` → tag `cex`). Does not create a separate experiment. |
 
 ---
 
@@ -197,23 +200,40 @@ docker run --rm --network host \
   python -m model_pipeline.layer3.evaluate
 ```
 
-> `ANTHROPIC_API_KEY` is required for naming accuracy. Without it the API call returns 401, `namer.py` falls back to the majority label, and naming accuracy will show as 0.
+> `ANTHROPIC_API_KEY` is optional. Without it, `namer.py` falls back to the majority label and naming accuracy shows as 0. All other metrics (silhouette, coverage, noise %, cluster size) run fine without it.
+>
+> `POSTGRES_DSN` is not needed — evaluation always reads from `user_store.pkl` in MinIO and does not write to Postgres.
 
 ---
 
 #### 4. Layer 3 pipeline — production run (writes suggestions to Postgres)
 
-Clusters all users in the store, names each cluster via the Anthropic API, and inserts pending suggestions into the `layer3_suggestions` table. Intended to run weekly.
+Clusters all users, names each cluster via the Anthropic API, and inserts pending suggestions into the `layer3_suggestions` table. Intended to run weekly.
 
-**Prerequisite**: `user_store.pkl` must exist. Rebuild the image after `requirements.txt` was updated to add `psycopg2-binary`:
+Controlled by the `LAYER3_SOURCE` env var:
 
-```bash
-docker build -f model_pipeline/layer2/Dockerfile -t actualbudget-evaluate .
-```
+| `LAYER3_SOURCE` | Source | Use case |
+|---|---|---|
+| unset (default) | `layer2_examples` in Postgres — real production users | Production CronJob |
+| `minio` | `user_store.pkl` in MinIO — synthetic training users | Local testing |
+
+**Production (reads from Postgres `layer2_examples`):**
 
 ```bash
 docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
+  -e ANTHROPIC_API_KEY=<your-key> \
+  -e POSTGRES_DSN="postgresql://mlops_user:mlops_pass@10.43.98.71:5432/mlops" \
+  actualbudget-evaluate \
+  python -m model_pipeline.layer3.pipeline
+```
+
+**Local testing (reads from MinIO `user_store.pkl`):**
+
+```bash
+docker run --rm --network host \
+  -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
+  -e LAYER3_SOURCE=minio \
   -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
   -e MINIO_ACCESS_KEY=minioadmin \
   -e MINIO_SECRET_KEY=minioadmin123 \
@@ -223,7 +243,7 @@ docker run --rm --network host \
   python -m model_pipeline.layer3.pipeline
 ```
 
-`POSTGRES_DSN` overrides the internal k8s DSN (`postgres.mlops.svc.cluster.local`) in `config.yaml` — use the Postgres NodePort when running outside the cluster. Logs `total_users_processed`, `total_clusters_found`, and `total_suggestions_written` to MLflow under experiment `layer3-clustering`.
+> `POSTGRES_DSN` is required in both modes — the Postgres connection is opened before the source branch so early-exit on an empty store can close it cleanly. Logs `total_users_processed`, `total_clusters_found`, and `total_suggestions_written` to MLflow under experiment `layer3-clustering`.
 
 ---
 
@@ -251,9 +271,9 @@ layer2:
   model_name: sentence-transformers/all-mpnet-base-v2
   max_length: 128             # tokenizer max length
   k: 5                        # number of nearest neighbors
-  similarity_threshold: 0.85  # min cosine similarity to trust Layer 2
+  similarity_threshold: 0.90  # min cosine similarity to trust Layer 2
   min_history: 10             # min stored transactions before Layer 2 activates
-  store_path: http://129.114.25.143:30900/data/user_store/user_store.pkl   # MinIO object
+  store_path: http://129.114.25.143:30900/data/user_store/user_store_full.pkl   # MinIO object
 
 postgres:
   dsn: "postgresql://mlops_user:mlops_pass@postgres.mlops.svc.cluster.local:5432/mlops"

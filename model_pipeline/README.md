@@ -51,7 +51,7 @@ Incoming transaction
         │
         ▼  (offline, weekly)
   Layer 3 (DBSCAN + Claude)
-  clusters user embeddings from user_store.pkl
+  clusters user embeddings from layer2_examples (prod) or user_store.pkl (local)
   names clusters via Anthropic API
   writes pending suggestions to Postgres
 ```
@@ -96,14 +96,14 @@ layer2:
   model_name: "sentence-transformers/all-mpnet-base-v2"
   max_length: 128
   k: 5
-  similarity_threshold: 0.85
+  similarity_threshold: 0.90
   min_history: 10
-  store_path: "http://129.114.25.143:30900/data/user_store/user_store.pkl"  # MinIO object
+  store_path: "http://129.114.25.143:30900/data/user_store/user_store_full.pkl"  # MinIO object
 
 layer3:
   eps: 0.15
   min_samples: 3
-  store_path: "http://129.114.25.143:30900/data/user_store/user_store.pkl"  # MinIO object
+  store_path: "http://129.114.25.143:30900/data/user_store/user_store_full.pkl"  # MinIO object
 
 postgres:
   dsn: "postgresql://mlops_user:mlops_pass@postgres.mlops.svc.cluster.local:5432/mlops"
@@ -174,13 +174,13 @@ python -m model_pipeline.layer3.evaluate
 
 ### 5. user_store.pkl is in MinIO, not a local PVC mount
 
-`user_store.pkl` lives at `data/user_store/user_store.pkl` in MinIO (bucket `data`). Docker containers access it via the NodePort (`--network host` + `MINIO_ENDPOINT_URL`). No local volume mount is needed.
+`user_store.pkl` lives at `data/user_store/user_store_full.pkl` in MinIO (bucket `data`). Docker containers access it via the NodePort (`--network host` + `MINIO_ENDPOINT_URL`). No local volume mount is needed.
 
 **Pull locally for inspection:**
 
 ```bash
 mc alias set myminio http://129.114.25.143:30900 minioadmin minioadmin123
-mc cp myminio/data/user_store/user_store.pkl ./artifacts/user_store.pkl
+mc cp myminio/data/user_store/user_store_full.pkl ./artifacts/user_store_full.pkl
 ```
 
 **Build fresh and upload:**
@@ -285,11 +285,29 @@ Artifact: `layer3_eval_results.csv` (per-user breakdown)
 
 ### Layer 3 — Pipeline (production run, writes to Postgres)
 
-Clusters all users in the store, names each cluster via the Anthropic API, and inserts pending suggestions into `public.layer3_suggestions`. Run weekly.
+Clusters all users, names each cluster via the Anthropic API, and inserts pending suggestions into `public.layer3_suggestions`. Run weekly.
+
+Source is controlled by `LAYER3_SOURCE` (default `postgres`):
+- Unset / `postgres` → reads real users from `layer2_examples` in Postgres
+- `minio` → reads synthetic users from `user_store.pkl` in MinIO (local testing only)
+
+**Production:**
 
 ```bash
 docker run --rm --network host \
   -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
+  -e ANTHROPIC_API_KEY=<your-key> \
+  -e POSTGRES_DSN="postgresql://mlops_user:mlops_pass@10.43.98.71:5432/mlops" \
+  actualbudget-evaluate \
+  python -m model_pipeline.layer3.pipeline
+```
+
+**Local testing (MinIO):**
+
+```bash
+docker run --rm --network host \
+  -v "$(pwd)/model_pipeline/layer2/config.yaml:/app/model_pipeline/layer2/config.yaml" \
+  -e LAYER3_SOURCE=minio \
   -e MINIO_ENDPOINT_URL=http://129.114.25.143:30900 \
   -e MINIO_ACCESS_KEY=minioadmin \
   -e MINIO_SECRET_KEY=minioadmin123 \
@@ -308,7 +326,7 @@ Metrics logged: `total_users_processed`, `total_clusters_found`, `total_suggesti
 
 | Experiment | Script | Key metrics |
 |---|---|---|
-| `layer2-evaluation_cex` | `model_pipeline.evaluate --experiment-suffix _cex` | weighted_f1, macro_f1, layer2_routing_pct |
+| `layer2-evaluation` | `model_pipeline.evaluate` (all eval CSVs, tagged by `eval_split`) | weighted_f1, macro_f1, layer2_routing_pct |
 | `layer1-layer2-evaluation` | `evaluate_moneydata_sliding` | per-year weighted_f1, layer2_routing_pct (step = year) |
 | `layer3-evaluation` | `model_pipeline.layer3.evaluate` | silhouette, coverage, naming_accuracy |
 | `layer3-clustering` | `model_pipeline.layer3.pipeline` | total_suggestions_written |

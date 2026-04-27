@@ -252,13 +252,25 @@ See [`model_pipeline/layer2/README.md`](model_pipeline/layer2/README.md) for Doc
 
 **What it does:** Runs weekly offline. Clusters each user's transaction embeddings with DBSCAN to find groups of semantically similar payees that may belong to a user-defined category (e.g. a user who frequently visits the same local gym not covered by the 29 standard categories). Each cluster is named by Claude (Anthropic API) and written as a pending suggestion to Postgres. The user can approve or reject suggestions through ActualBudget.
 
-**Pipeline (`pipeline.py`):** Loads `user_store.pkl` → DBSCAN per user → LLM naming → INSERT into `layer3_suggestions` table with `ON CONFLICT (cluster_id) DO NOTHING`.
+**Pipeline (`pipeline.py`):** Loads `user_store.pkl` → DBSCAN per user → LLM naming → INSERT into `layer3_suggestions` table with `ON CONFLICT (cluster_id) DO NOTHING`. Logs to the **`layer3-clustering`** MLflow experiment — this experiment is only populated after a production run. In normal weekly operation, `ON CONFLICT DO NOTHING` is intentional — existing pending suggestions are preserved for user review. Only clear pending suggestions (`DELETE FROM layer3_suggestions WHERE status = 'pending'`) if the user store has been rebuilt from scratch (e.g. after a bug fix), since old suggestions will no longer reflect the updated store.
 
-**Evaluation (`evaluate.py`):** Measures cluster quality (silhouette, coverage, noise %) and naming accuracy (LLM suggestion vs. majority ground-truth label on pure clusters). Also sweeps eps at tight/default/loose to aid hyperparameter selection.
+**Evaluation (`evaluate.py`):** Measures cluster quality (silhouette, coverage, noise %) and naming accuracy (LLM suggestion vs. majority ground-truth label on pure clusters). Logs to the **`layer3-evaluation`** MLflow experiment. Does not write to Postgres.
 
 **Postgres table:** `public.layer3_suggestions` — columns: `user_id`, `cluster_id` (unique), `suggested_category_name`, `payee_list` (TEXT[]), `status` (pending/approved/rejected), `created_at`.
 
 **LLM:** `namer.py` calls `claude-sonnet-4-20250514` via the Anthropic API. Requires `ANTHROPIC_API_KEY`. Falls back to majority label on API failure.
+
+**Evaluation results** (2026-04-27, `user_store_full.pkl`, 400 users, normalized payees):
+
+| Metric | Value |
+|---|---|
+| Mean silhouette | 0.751 |
+| Mean coverage | 0.733 |
+| Mean cluster size | 9.2 payees |
+| Noise % | 19.7% |
+| Naming accuracy | 0.605 (on 2776 pure clusters) |
+
+Eps sensitivity: tight (0.075) → silhouette=0.734, coverage=0.600 · default (0.150) → silhouette=0.751, coverage=0.733 · loose (0.300) → silhouette=0.586, coverage=0.823
 
 See [`model_pipeline/layer2/README.md`](model_pipeline/layer2/README.md) for Docker build/run commands covering Layer 3 evaluation and pipeline.
 
