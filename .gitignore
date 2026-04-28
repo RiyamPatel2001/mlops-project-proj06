@@ -30,6 +30,8 @@ terraform.tfvars
 terraform.tfstate
 terraform.tfstate.backup
 .terraform/
-.terraform.lock.hcl.DS_Store
+.terraform.lock.hcl
+.DS_Store
+.claude/
 
 test_layer1_layer2_predictions.py
