@@ -376,4 +376,4 @@ See [`devops/README.md`](devops/README.md) for cluster setup, Terraform, Ansible
 | [`training/README.md`](training/README.md) | Layer 1 training — models, Docker commands for CPU/GPU/sweep/retrain, quality gate, MLflow logging |
 | [`model_pipeline/layer2/README.md`](model_pipeline/layer2/README.md) | Layer 2 + Layer 3 — user store, all evaluation Docker commands, config reference |
 | [`devops/README.md`](devops/README.md) | Cluster setup — Terraform, Ansible, k3s bootstrap, platform services |
-| [`serving/serving_initial/README.md`](serving/serving_initial/README.md) | Serving evaluation — latency/throughput benchmarks, FastText + FastAPI selection rationale |
+| [`serving/README.md`](serving/README.md) | Serving team overview — UI integration, auth and user isolation, FastAPI + Postgres, and multi-model serving |
