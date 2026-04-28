@@ -220,7 +220,9 @@ docker run --rm --network host \
 
 **Output:** Category string + confidence score.
 
-**Training:** `training/train.py` — reads raw CSV from MinIO, splits by user, trains, evaluates against quality gate (weighted F1 ≥ 0.90), and promotes to the serving registry if it beats the current production model by ≥ 1%.
+**Training:** `training/train.py` — reads raw CSV from MinIO, splits by user, trains, evaluates against quality gate (weighted F1 ≥ 0.90, macro F1 ≥ 0.90), and promotes to the serving registry if the candidate accuracy ≥ current production model accuracy.
+
+**Retraining:** `training/retrain.py` — triggered by the batch pipeline when new user feedback is available. Uses a separate, looser quality gate (`quality_gate_retrain` in `config.yaml`: weighted F1 ≥ 0.82, macro F1 ≥ 0.82) because user feedback data is inherently class-imbalanced. Promotes if candidate accuracy ≥ production accuracy (no minimum delta required — flat accuracy on user-augmented data is already a success signal).
 
 **Evaluation datasets:**
 - `data/processed/eval_cex.csv` — 2024 CEX data (in-distribution)
@@ -287,7 +289,7 @@ CEX PUMD source files
 data_pipeline/ingestion/     →  data/raw/
 data_pipeline/preprocessing/ →  data/processed/
 data_pipeline/feature_computation/
-data_pipeline/batch_pipeline/
+data_pipeline/batch_pipeline/  →  MinIO retraining/
 data_pipeline/drift_detection/
 ```
 
@@ -308,6 +310,14 @@ python generate_transactions.py --year 2022 \
   --input_files fmli222.csv fmli223.csv fmli224.csv fmli231.csv \
   --output transactions_2022.csv
 ```
+
+**Batch pipeline (`data_pipeline/batch_pipeline/batch_pipeline.py`):**
+
+Reads reviewed Layer 1 feedback from Postgres (`feedback_store` where `reviewed_by_user=TRUE AND source=layer1`), runs quality gates, and writes a versioned retraining CSV to MinIO (`data/retraining/`) for `retrain.py` to consume.
+
+Custom category resolution: users can assign arbitrary category names in ActualBudget (stored in the `layer2_examples.custom_category` column in Postgres). When one of these custom labels appears as a `final_label` in the feedback store, it cannot be used directly to retrain Layer 1 (which only knows the 29 base categories). The batch pipeline resolves custom labels to the closest base category via a Claude API call (`claude-haiku-4-5`) before writing the retraining CSV. Results are cached within each run to avoid redundant API calls, and the system prompt containing the 29 base categories is prompt-cached. Unresolvable labels fall back to `"Other"`. The manifest uploaded to MinIO includes `custom_category_remapped` and `custom_category_resolutions` counts for auditing.
+
+Requires `ANTHROPIC_API_KEY` in the environment (already present in `.env`).
 
 ---
 

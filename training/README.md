@@ -275,8 +275,8 @@ docker run --rm --gpus all \
 `retrain.py` is the triggered-retraining entrypoint. It:
 1. Downloads the latest versioned dataset from MinIO (`data/retraining/`)
 2. Merges it with the base raw dataset (unless `--no-merge`)
-3. Retrains and evaluates the model
-4. Promotes the candidate only if it beats the current production model by at least `promotion.minimum_accuracy_delta`
+3. Retrains and evaluates the model using the `quality_gate_retrain` thresholds from `config.yaml` (not the stricter `quality_gate` block used for initial training)
+4. Promotes the candidate if its accuracy is ≥ the current production model's accuracy (`minimum_accuracy_delta: 0.0` — flat accuracy is already a success signal for user-augmented data)
 
 ```bash
 # Local
@@ -336,10 +336,18 @@ mlflow:
   tracking_uri: http://<host>:30500
   experiment_name: layer1-categorizer
 
+quality_gate:                # used by train.py (initial training on clean data)
+  weighted_f1: 0.90
+  macro_f1:    0.90
+
+quality_gate_retrain:        # used by retrain.py instead of quality_gate
+  weighted_f1: 0.82          # revisit after 5-10 real runs (set to ~10th percentile of healthy macro F1)
+  macro_f1:    0.82
+
 promotion:
   target_tier: fast          # registry tier to promote into
   registry_path: ../serving/layer1_registry.json
-  minimum_accuracy_delta: 0.01
+  minimum_accuracy_delta: 0.0  # flat accuracy after merge is already a success signal
 
 minio:
   endpoint: http://...
@@ -350,14 +358,18 @@ Model-specific hyperparameters live under their own key (`tfidf_logreg`, `fastte
 
 ## Quality gate
 
-`evaluate.py` enforces a quality gate on every run. Defaults:
+`evaluate.py` enforces a quality gate on every run. There are two separate gate configs in `config.yaml` — one for initial training on clean data, one for retraining on user feedback:
 
-| Metric | Minimum |
-|---|---|
-| Weighted F1 | 0.75 |
-| Macro F1 | 0.55 |
+| | Weighted F1 | Macro F1 |
+|---|---|---|
+| `quality_gate` (initial training) | 0.90 | 0.90 |
+| `quality_gate_retrain` (retrain.py) | 0.82 | 0.82 |
 
-Override via a `quality_gate` key in `config.yaml`. If the gate fails, the process exits with code 1 and the MLflow run is tagged `quality_gate: failed`.
+`retrain.py` automatically substitutes `quality_gate_retrain` before calling `evaluate_and_log()`. The looser retrain thresholds account for two structural realities: user feedback data is class-imbalanced in ways outside our control (a user with 5 Childcare vs 300 Groceries corrections will produce structural zeros that alone pull macro F1 well below 0.90), and rare classes like Childcare and Vehicle Payment already score 0.0 before any feedback noise is introduced.
+
+The 0.82 floor is a calibrated starting point. After 5–10 real retraining runs, look at the distribution of macro F1 values logged in MLflow and set the threshold at approximately the 10th percentile of healthy runs.
+
+If the gate fails, the process exits with code 1 and the MLflow run is tagged `quality_gate: failed`.
 
 ## MLflow output
 
