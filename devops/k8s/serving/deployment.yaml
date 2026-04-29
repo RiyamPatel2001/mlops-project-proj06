@@ -104,18 +104,25 @@ spec:
               mountPath: /app/models
             - name: artifacts
               mountPath: /app/artifacts
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 24
           readinessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 240
+            initialDelaySeconds: 0
             periodSeconds: 15
             failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 180
+            initialDelaySeconds: 0
             periodSeconds: 20
             failureThreshold: 3
       volumes:
