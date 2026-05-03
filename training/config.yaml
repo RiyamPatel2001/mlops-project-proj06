@@ -59,7 +59,7 @@ promotion:
   bootstrap:
     model_name: fasttext
     model_kind: fasttext
-    run_id: e99c0f7fe5554fd584c9efd2162f5572
+    run_id: 85b08fba7b6f4ad183702adad093b673
     artifact_path: fasttext.bin
 
 # ── MinIO (for storing data) ─────────────────────────────
