@@ -27,7 +27,7 @@ app.use(requestLoggerMiddleware);
 
 const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 attempts per window
+  max: 200, // increased for multi-user testing
   legacyHeaders: false,
   standardHeaders: true,
   message: { status: 'error', reason: 'too-many-requests' },
