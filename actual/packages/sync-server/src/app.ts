@@ -30,7 +30,7 @@ if (process.env.NODE_ENV !== 'development') {
   app.use(
     rateLimit({
       windowMs: 60 * 1000,
-      max: 500,
+      max: 5000,
       legacyHeaders: false,
       standardHeaders: true,
     }),
