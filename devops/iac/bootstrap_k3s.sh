@@ -45,17 +45,13 @@ log "Step 4/5: Configuring kubectl access..."
 mkdir -p ~/.kube
 sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
 sudo chown "$USER:$USER" ~/.kube/config
-# Replace localhost with actual server IP for remote access
-NODE_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || \
-          hostname -I | awk '{print $1}')
-sed -i "s/127.0.0.1/$NODE_IP/g" ~/.kube/config
-
+# Keep kubeconfig pointing to 127.0.0.1 — cert is valid for localhost
 export KUBECONFIG=~/.kube/config
 
 # ── Step 5: Verify cluster ────────────────────────────────────────────────────
 log "Step 5/5: Verifying cluster..."
-kubectl get nodes
-kubectl get pods -A | head -20
+sudo kubectl get nodes
+sudo kubectl get pods -A | head -20
 
 # ── Add kubectl to PATH for future SSH sessions ───────────────────────────────
 echo 'export KUBECONFIG=~/.kube/config' >> ~/.bashrc
