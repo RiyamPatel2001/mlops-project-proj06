@@ -64,23 +64,23 @@ if ! openstack security group show "$SEC_GROUP" &>/dev/null; then
   openstack security group create "$SEC_GROUP" \
     --description "MLOps proj06 K8S node security group"
   # SSH
-  openstack security group rule create "$SEC_GROUP" \
-    --protocol tcp --dst-port 22 --remote-ip 0.0.0.0/0
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 22 --remote-ip 0.0.0.0/0
   # k3s API server
-  openstack security group rule create "$SEC_GROUP" \
-    --protocol tcp --dst-port 6443 --remote-ip 0.0.0.0/0
-  # MLflow NodePort
-  openstack security group rule create "$SEC_GROUP" \
-    --protocol tcp --dst-port 30500 --remote-ip 0.0.0.0/0
-  # ActualBudget NodePort
-  openstack security group rule create "$SEC_GROUP" \
-    --protocol tcp --dst-port 30506 --remote-ip 0.0.0.0/0
-  # Transaction Classifier (FastAPI) NodePort
-  openstack security group rule create "$SEC_GROUP" \
-    --protocol tcp --dst-port 30508 --remote-ip 0.0.0.0/0
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 6443 --remote-ip 0.0.0.0/0
+  # All NodePort services
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 30500 --remote-ip 0.0.0.0/0  # MLflow
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 30506 --remote-ip 0.0.0.0/0  # ActualBudget
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 30508 --remote-ip 0.0.0.0/0  # Classifier
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 30808 --remote-ip 0.0.0.0/0  # ArgoCD HTTP
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 30809 --remote-ip 0.0.0.0/0  # ArgoCD HTTPS
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 30030 --remote-ip 0.0.0.0/0  # Grafana
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 30090 --remote-ip 0.0.0.0/0  # Prometheus
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 30093 --remote-ip 0.0.0.0/0  # Alertmanager
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 30081 --remote-ip 0.0.0.0/0  # Adminer
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 30900 --remote-ip 0.0.0.0/0  # MinIO API
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 30901 --remote-ip 0.0.0.0/0  # MinIO Console
   # Allow all internal traffic within the security group
-  openstack security group rule create "$SEC_GROUP" \
-    --protocol tcp --dst-port 1:65535 --remote-group "$SEC_GROUP" 2>/dev/null || true
+  openstack security group rule create "$SEC_GROUP" --protocol tcp --dst-port 1:65535 --remote-group "$SEC_GROUP" 2>/dev/null || true
   log "Security group created with all required rules"
 else
   warn "Security group $SEC_GROUP already exists — skipping creation"
