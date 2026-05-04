@@ -130,6 +130,7 @@ resource "openstack_networking_port_v2" "sharednet1_ports" {
     openstack_networking_secgroup_v2.prometheus.id,
     openstack_networking_secgroup_v2.argocd.id,
     openstack_networking_secgroup_v2.adminer.id,
+    openstack_networking_secgroup_v2.postgres_nodeport.id,
   ]
 }
 
@@ -166,7 +167,7 @@ resource "openstack_networking_floatingip_v2" "floating_ip" {
 # Prevents disk pressure from large training images filling the boot disk
 resource "openstack_blockstorage_volume_v3" "docker_storage" {
   name = "proj06-docker-storage"
-  size = 50
+  size = 200
 }
 
 resource "openstack_compute_volume_attach_v2" "docker_storage_attach" {
