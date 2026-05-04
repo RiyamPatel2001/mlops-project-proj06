@@ -12,3 +12,5 @@ PyYAML==6.0.*
 scikit-learn==1.5.*
 minio==7.2.*
 python-dotenv==1.0.*
+torch==2.3.*
+transformers==4.41.*
