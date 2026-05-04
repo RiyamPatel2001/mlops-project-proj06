@@ -180,7 +180,7 @@ kubectl get pods -n mlops
 # ── Step 10: Install ArgoCD ────────────────────────────────────────────────────
 log "Step 10/11: Installing ArgoCD..."
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply --server-side -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
 log "Waiting for ArgoCD server to be ready (up to 3 min)..."
 kubectl wait --for=condition=Available deployment/argocd-server -n argocd --timeout=180s || true
