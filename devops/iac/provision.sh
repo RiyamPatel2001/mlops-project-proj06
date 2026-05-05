@@ -138,6 +138,41 @@ fi
 openstack server add floating ip "$INSTANCE_NAME" "$FLOATING_IP"
 log "Floating IP $FLOATING_IP associated"
 
+# ── Step 4b: Create and attach Cinder volume ──────────────────────────────────
+# bootstrap_k3s.sh moves Docker and k3s image stores to /dev/vdb to keep the
+# 20 GB root disk free. Without this volume the cluster hits disk pressure and
+# pods get evicted once images accumulate.
+VOLUME_NAME="${INSTANCE_NAME}-data"
+VOLUME_SIZE=50  # GB — enough for all Docker/k3s image layers
+
+log "Step 4b/5: Creating Cinder volume $VOLUME_NAME (${VOLUME_SIZE} GB)..."
+if ! openstack volume show "$VOLUME_NAME" &>/dev/null; then
+  openstack volume create --size "$VOLUME_SIZE" --description "Docker+k3s image store for $INSTANCE_NAME" "$VOLUME_NAME"
+  log "Volume $VOLUME_NAME created"
+else
+  warn "Volume $VOLUME_NAME already exists — reusing"
+fi
+
+# Wait for volume to reach 'available' before attaching
+log "Waiting for volume to become available..."
+for i in $(seq 1 18); do
+  VOL_STATUS=$(openstack volume show "$VOLUME_NAME" -f value -c status 2>/dev/null || echo "unknown")
+  echo "  [$i/18] Volume status: $VOL_STATUS"
+  [ "$VOL_STATUS" = "available" ] && break
+  [ "$VOL_STATUS" = "in-use" ] && warn "Volume already attached — skipping attach" && break
+  sleep 10
+done
+
+VOL_STATUS=$(openstack volume show "$VOLUME_NAME" -f value -c status 2>/dev/null || echo "unknown")
+if [ "$VOL_STATUS" = "available" ]; then
+  openstack server add volume "$INSTANCE_NAME" "$VOLUME_NAME"
+  log "Volume $VOLUME_NAME attached to $INSTANCE_NAME as /dev/vdb"
+elif [ "$VOL_STATUS" = "in-use" ]; then
+  log "Volume $VOLUME_NAME already in use (attached)"
+else
+  warn "Volume status is $VOL_STATUS — bootstrap_k3s.sh will fall back to root disk (disk pressure risk)"
+fi
+
 # ── Step 5: Wait for SSH ───────────────────────────────────────────────────────
 log "Step 5/5: Waiting for SSH to become available..."
 for i in $(seq 1 20); do

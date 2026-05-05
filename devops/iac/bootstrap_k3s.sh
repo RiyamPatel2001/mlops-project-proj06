@@ -21,10 +21,14 @@ sudo apt-get install -y -qq curl wget git
 # ── Step 2: Install k3s ────────────────────────────────────────────────────────
 log "Step 2/5: Installing k3s (lightweight Kubernetes)..."
 # Disable Traefik — using NodePort instead of Ingress
-# Disable local-storage — we use local-path provisioner (bundled)
+# --tls-san adds the floating IP to the k3s TLS cert so the kubeconfig works
+# from a remote laptop after 'sed s/127.0.0.1/<IP>/' (without --tls-san kubectl
+# returns a TLS cert error even after the sed)
+FLOATING_IP_META=$(curl -s --max-time 5 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || hostname -I | awk '{print $1}')
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \
   --disable traefik \
-  --write-kubeconfig-mode 644" sh -
+  --write-kubeconfig-mode 644 \
+  --tls-san ${FLOATING_IP_META}" sh -
 
 log "k3s installed"
 
@@ -90,6 +94,19 @@ if [ -b /dev/vdb ]; then
 
   sudo systemctl start docker
   log "Docker running with data-root on /mnt/docker-storage"
+
+  # Move k3s containerd image store to Cinder so root disk stays free (fixes disk pressure)
+  log "Step 6/9: Moving k3s image store to Cinder volume..."
+  sudo systemctl stop k3s
+  sudo mkdir -p /mnt/docker-storage/rancher
+  if [ -d /var/lib/rancher ]; then
+    sudo rsync -aH /var/lib/rancher/ /mnt/docker-storage/rancher/
+    sudo rm -rf /var/lib/rancher
+    sudo ln -s /mnt/docker-storage/rancher /var/lib/rancher
+  fi
+  sudo systemctl start k3s
+  sleep 20
+  log "k3s image store on Cinder — root disk will stay well under 30% used"
 fi
 
 # ── Step 7: Clone project repo ────────────────────────────────────────────────
@@ -117,7 +134,7 @@ kubectl create secret generic minio-credentials \
 kubectl create secret generic postgres-credentials \
   --namespace=mlops \
   --from-literal=username=mlops_user \
-  --from-literal=password=mlops_pass \
+  --from-literal=password=mlops1234 \
   --from-literal=dbname=mlops \
   --dry-run=client -o yaml | kubectl apply -f -
 
@@ -129,7 +146,7 @@ kubectl create secret generic proj06-env \
   --from-literal=AWS_ACCESS_KEY_ID=minioadmin \
   --from-literal=AWS_SECRET_ACCESS_KEY=minioadmin123 \
   --from-literal=POSTGRES_USER=mlops_user \
-  --from-literal=POSTGRES_PASSWORD=mlops_pass \
+  --from-literal=POSTGRES_PASSWORD=mlops1234 \
   --from-literal=POSTGRES_DB=mlops \
   --from-literal=MINIO_ENDPOINT=http://minio:9000 \
   --from-literal=MINIO_ACCESS_KEY=minioadmin \
@@ -182,14 +199,42 @@ log "Step 10/11: Installing ArgoCD..."
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply --server-side -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-log "Waiting for ArgoCD server to be ready (up to 3 min)..."
-kubectl wait --for=condition=Available deployment/argocd-server -n argocd --timeout=180s || true
+log "Waiting for ArgoCD server to be ready (up to 4 min)..."
+kubectl wait --for=condition=Available deployment/argocd-server -n argocd --timeout=240s || true
+
+# Patch ArgoCD to serve HTTP without redirect (fixes browser access on plain HTTP NodePort)
+log "Patching ArgoCD server to disable HTTP->HTTPS redirect..."
+kubectl patch deployment argocd-server -n argocd \
+  --type='json' \
+  -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--insecure"}]'
+kubectl rollout status deployment/argocd-server -n argocd --timeout=120s || true
+
+# Install ArgoCD Image Updater (needed for CI/CD auto-deploy from ghcr.io)
+log "Installing ArgoCD Image Updater..."
+kubectl apply --server-side -n argocd \
+  -f https://raw.githubusercontent.com/argoproj-labs/argocd-image-updater/stable/manifests/install.yaml
+kubectl wait --for=condition=Available deployment/argocd-image-updater -n argocd --timeout=120s || true
+
+# Wait for ArgoCD CRDs to be fully registered before applying apps (fixes silent failures)
+log "Waiting for ArgoCD CRDs to be ready..."
+for i in $(seq 1 12); do
+  kubectl get crd applications.argoproj.io &>/dev/null && break
+  echo "  [$i/12] Waiting for ArgoCD CRDs..."
+  sleep 10
+done
 
 # Apply ArgoCD app configs so it syncs all manifests from git automatically
-kubectl apply -f $K8S/../k8s/argocd/app-platform.yaml 2>/dev/null || true
-kubectl apply -f $K8S/../k8s/argocd/app-serving.yaml 2>/dev/null || true
+# Retry up to 3 times in case CRDs aren't fully propagated yet
+for attempt in 1 2 3; do
+  kubectl apply -f $K8S/argocd/app-platform.yaml && break || sleep 10
+done
+for attempt in 1 2 3; do
+  kubectl apply -f $K8S/argocd/app-serving.yaml && break || sleep 10
+done
 
-log "ArgoCD installed. Password: kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d"
+ARGOCD_PASS=$(kubectl get secret argocd-initial-admin-secret -n argocd \
+  -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)
+log "ArgoCD installed. Password: $ARGOCD_PASS"
 
 # ── Step 11: Write layer1_registry.json to serving PVC ────────────────────────
 log "Step 11/11: Writing layer1_registry.json to serving PVC..."
@@ -208,8 +253,26 @@ kubectl delete pod registry-init -n mlops --ignore-not-found=true
 
 log "layer1_registry.json written — classifier will load correct MLflow run IDs on startup"
 
+# ── Gap 2: Verify classifier model artifacts exist in MinIO ───────────────────
+# The serving pod reads layer1_registry.json and pulls model artifacts from MinIO
+# on startup. If this is a fresh cluster, MinIO is empty and the classifier will
+# start but return 503 on /predict until models are seeded.
+#
+# To seed models, run the training pipeline once after the cluster is up:
+#   kubectl create job --from=cronjob/training-job seed-models -n mlops
+#   kubectl logs -f job/seed-models -n mlops
+#
+# Alternatively copy existing MLflow artifacts from a previous run into MinIO:
+#   mc alias set local http://<IP>:30900 minioadmin minioadmin123
+#   mc cp --recursive ./mlflow-artifacts/ local/mlflow/
+#
+# The classifier /health endpoint returns 200 even without models.
+# The /predict endpoint returns 503 until at least one model is loaded.
+log "NOTE: MinIO is empty on a fresh cluster. Run training job or seed model artifacts before using /predict."
+
 # ── Done ───────────────────────────────────────────────────────────────────────
-FLOATING_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || hostname -I | awk '{print $1}')
+# FLOATING_IP_META already set in Step 2
+FLOATING_IP="${FLOATING_IP_META}"
 echo ""
 echo "============================================="
 log "Bootstrap complete! Cluster is production-ready."
@@ -227,8 +290,9 @@ echo "  good  (minilm):       b8f1ad8433b7492e82726429df5b66a0"
 echo "  fast  (fasttext):     5af29fbaa4b04abc9d21b18a19ccc736"
 echo "  cheap (tfidf_logreg): bd19d31c1aa94500a0fa3a4f2cee4c94"
 echo ""
-echo "From your laptop:"
+echo "From your laptop (--tls-san was set above so the cert covers this IP):"
 echo "  scp -i ~/.ssh/id_rsa_chameleon cc@$FLOATING_IP:~/.kube/config ~/.kube/chameleon-proj06.yaml"
-echo "  sed -i '' 's/127.0.0.1/$FLOATING_IP/g' ~/.kube/chameleon-proj06.yaml"
+echo "  sed -i '' \"s/127.0.0.1/$FLOATING_IP/g\" ~/.kube/chameleon-proj06.yaml"
 echo "  export KUBECONFIG=~/.kube/chameleon-proj06.yaml"
+echo "  kubectl get nodes   # should work without TLS errors"
 echo "============================================="
